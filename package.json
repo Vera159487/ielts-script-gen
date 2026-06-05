@@ -1,0 +1,16 @@
+{
+  "name": "ielts-script-gen",
+  "version": "1.0.0",
+  "private": true,
+  "description": "破7学院小红书视频脚本自动生成工具",
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npx tsx watch src/index.ts",
+    "dev:client": "cd client && npx vite",
+    "build": "cd client && npx vite build",
+    "start": "cd server && npx tsx src/index.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

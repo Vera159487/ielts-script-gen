@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-gray-800 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-600 text-white px-6 py-2.5 rounded-xl font-medium
+           hover:bg-brand-700 active:scale-95
+           transition-all duration-200 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand-600;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-gray-700 px-4 py-2 rounded-xl font-medium border border-gray-200
+           hover:bg-gray-50 hover:border-gray-300 active:scale-95
+           transition-all duration-200 ease-out;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-gray-100 p-6;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl border border-gray-200
+           focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent
+           bg-gray-50 hover:bg-white transition-colors
+           placeholder:text-gray-400;
+  }
+
+  .markdown-preview h1 {
+    @apply text-2xl font-bold mt-6 mb-3;
+  }
+  .markdown-preview h2 {
+    @apply text-xl font-bold mt-5 mb-2 text-brand-700;
+  }
+  .markdown-preview h3 {
+    @apply text-lg font-semibold mt-4 mb-2;
+  }
+  .markdown-preview p {
+    @apply my-2 leading-relaxed;
+  }
+  .markdown-preview blockquote {
+    @apply border-l-4 border-brand-400 bg-brand-50 px-4 py-2 my-3 rounded-r-lg
+           text-gray-700 italic;
+  }
+  .markdown-preview ul,
+  .markdown-preview ol {
+    @apply my-2 pl-6;
+  }
+  .markdown-preview li {
+    @apply my-1;
+  }
+  .markdown-preview strong {
+    @apply text-brand-600 font-semibold;
+  }
+  .markdown-preview code {
+    @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm text-brand-600;
+  }
+  .markdown-preview hr {
+    @apply my-4 border-gray-200;
+  }
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* 流式生成光标动画 */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.streaming-cursor::after {
+  content: "▊";
+  animation: blink 1s infinite;
+  @apply text-brand-500;
+}
