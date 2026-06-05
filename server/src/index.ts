@@ -5,6 +5,8 @@ import { initDB } from "./db";
 import stylesRouter from "./routes/styles";
 import generateRouter from "./routes/generate";
 import scriptsRouter from "./routes/scripts";
+import pipelineRouter from "./routes/pipeline";
+import sessionsRouter from "./routes/sessions";
 
 async function main() {
   // 初始化数据库
@@ -20,6 +22,8 @@ async function main() {
   app.use("/api/styles", stylesRouter);
   app.use("/api/generate", generateRouter);
   app.use("/api/scripts", scriptsRouter);
+  app.use("/api/pipeline", pipelineRouter);
+  app.use("/api/sessions", sessionsRouter);
 
   // 健康检查
   app.get("/api/health", (_req, res) => {

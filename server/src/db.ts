@@ -31,7 +31,8 @@ export async function initDB(): Promise<void> {
     db = new SQL.Database();
   }
 
-  // 建表
+  // ========== 原有表 ==========
+
   db.run(`
     CREATE TABLE IF NOT EXISTS styles (
       id TEXT PRIMARY KEY,
@@ -57,10 +58,88 @@ export async function initDB(): Promise<void> {
     )
   `);
 
+  // 为旧 scripts 表补充新字段（忽略已存在错误）
+  for (const col of [
+    "ALTER TABLE scripts ADD COLUMN session_id TEXT",
+    "ALTER TABLE scripts ADD COLUMN source_url TEXT",
+    "ALTER TABLE scripts ADD COLUMN original_script TEXT DEFAULT ''",
+  ]) {
+    try { db.run(col); } catch (_) { /* 字段已存在 */ }
+  }
+
   db.run(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    )
+  `);
+
+  // ========== 新表：SOP 全链路 ==========
+
+  // 会话表 —— 一次完整的 Pipeline 执行
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      current_step TEXT,
+      style_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    )
+  `);
+
+  // 步骤产出物表 —— 每个 SOP 步骤的输入输出
+  db.run(`
+    CREATE TABLE IF NOT EXISTS pipeline_steps (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      step_name TEXT NOT NULL,
+      step_order INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      input_data TEXT,
+      output_data TEXT,
+      error_message TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 3,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )
+  `);
+
+  // 关键词缓存表 —— 避免重复调用 AI
+  db.run(`
+    CREATE TABLE IF NOT EXISTS keyword_banks (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL UNIQUE,
+      keywords TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // 小红书爆款帖子表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS viral_posts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      xhs_url TEXT NOT NULL,
+      title TEXT,
+      author_name TEXT,
+      author_followers INTEGER,
+      likes INTEGER,
+      collects INTEGER,
+      comments INTEGER,
+      duration_seconds INTEGER,
+      published_at TEXT,
+      script_content TEXT,
+      metadata TEXT,
+      is_verified INTEGER DEFAULT 0,
+      verification_notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
     )
   `);
 
@@ -160,7 +239,7 @@ function saveDB(): void {
   writeFileSync(DB_PATH, buffer);
 }
 
-// ========== 查询方法 ==========
+// ========== 样式查询（保留） ==========
 
 export function getStyles() {
   const results: any[] = [];
@@ -183,16 +262,22 @@ export function getStyleById(id: string) {
   return result;
 }
 
+// ========== 脚本 CRUD（保留 + 扩展） ==========
+
 export function createScript(
   id: string,
   topic: string,
   styleId: string,
   styleName: string,
-  content: string
+  content: string,
+  sessionId?: string,
+  sourceUrl?: string,
+  originalScript?: string
 ) {
   db.run(
-    "INSERT INTO scripts (id, topic, style_id, style_name, content) VALUES (?, ?, ?, ?, ?)",
-    [id, topic, styleId, styleName, content]
+    `INSERT INTO scripts (id, topic, style_id, style_name, content, session_id, source_url, original_script)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, topic, styleId, styleName, content, sessionId || null, sourceUrl || null, originalScript || ""]
   );
   saveDB();
 }
@@ -243,4 +328,222 @@ export function getScriptsCount(): number {
   }
   stmt.free();
   return count;
+}
+
+// ========== 会话管理 (Sessions) ==========
+
+export function createSession(id: string, topic: string, styleId?: string) {
+  db.run(
+    "INSERT INTO sessions (id, topic, style_id, status) VALUES (?, ?, ?, 'pending')",
+    [id, topic, styleId || null]
+  );
+  saveDB();
+}
+
+export function updateSessionStatus(id: string, status: string, currentStep?: string) {
+  const now = new Date().toISOString();
+  if (status === "completed") {
+    db.run(
+      "UPDATE sessions SET status = ?, current_step = ?, updated_at = ?, completed_at = ? WHERE id = ?",
+      [status, currentStep || null, now, now, id]
+    );
+  } else {
+    db.run(
+      "UPDATE sessions SET status = ?, current_step = ?, updated_at = ? WHERE id = ?",
+      [status, currentStep || null, now, id]
+    );
+  }
+  saveDB();
+}
+
+export function getSessionById(id: string) {
+  const stmt = db.prepare("SELECT * FROM sessions WHERE id = ?");
+  stmt.bind([id]);
+  let result: any = null;
+  if (stmt.step()) {
+    result = stmt.getAsObject();
+  }
+  stmt.free();
+  return result;
+}
+
+export function getSessions(limit = 50, offset = 0) {
+  const results: any[] = [];
+  const stmt = db.prepare(
+    "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ? OFFSET ?"
+  );
+  stmt.bind([limit, offset]);
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
+export function getSessionsCount(): number {
+  const stmt = db.prepare("SELECT COUNT(*) as count FROM sessions");
+  stmt.bind([]);
+  let count = 0;
+  if (stmt.step()) {
+    count = stmt.getAsObject().count as number;
+  }
+  stmt.free();
+  return count;
+}
+
+export function deleteSession(id: string) {
+  db.run("DELETE FROM pipeline_steps WHERE session_id = ?", [id]);
+  db.run("DELETE FROM viral_posts WHERE session_id = ?", [id]);
+  db.run("DELETE FROM sessions WHERE id = ?", [id]);
+  saveDB();
+}
+
+// ========== 步骤管理 (Pipeline Steps) ==========
+
+export function createStep(
+  id: string, sessionId: string, stepName: string, stepOrder: number,
+  inputData?: string, maxRetries = 3
+) {
+  db.run(
+    `INSERT INTO pipeline_steps (id, session_id, step_name, step_order, input_data, max_retries, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+    [id, sessionId, stepName, stepOrder, inputData || null, maxRetries]
+  );
+  saveDB();
+}
+
+export function updateStepStatus(
+  id: string, status: string, outputData?: string, errorMessage?: string
+) {
+  const now = new Date().toISOString();
+  if (status === "running") {
+    db.run(
+      "UPDATE pipeline_steps SET status = ?, started_at = ? WHERE id = ?",
+      [status, now, id]
+    );
+  } else if (status === "completed") {
+    db.run(
+      "UPDATE pipeline_steps SET status = ?, output_data = ?, completed_at = ? WHERE id = ?",
+      [status, outputData || null, now, id]
+    );
+  } else if (status === "failed") {
+    db.run(
+      "UPDATE pipeline_steps SET status = ?, error_message = ?, retry_count = retry_count + 1 WHERE id = ?",
+      [status, errorMessage || null, id]
+    );
+  }
+  saveDB();
+}
+
+export function getStepsBySession(sessionId: string) {
+  const results: any[] = [];
+  const stmt = db.prepare(
+    "SELECT * FROM pipeline_steps WHERE session_id = ? ORDER BY step_order"
+  );
+  stmt.bind([sessionId]);
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
+export function getStepById(id: string) {
+  const stmt = db.prepare("SELECT * FROM pipeline_steps WHERE id = ?");
+  stmt.bind([id]);
+  let result: any = null;
+  if (stmt.step()) {
+    result = stmt.getAsObject();
+  }
+  stmt.free();
+  return result;
+}
+
+// ========== 关键词缓存 (Keyword Banks) ==========
+
+export function getCachedKeywords(topic: string): string[] | null {
+  const stmt = db.prepare("SELECT keywords FROM keyword_banks WHERE topic = ?");
+  stmt.bind([topic]);
+  let result: string | null = null;
+  if (stmt.step()) {
+    result = stmt.getAsObject().keywords as string;
+  }
+  stmt.free();
+  if (result) {
+    try { return JSON.parse(result); } catch { return null; }
+  }
+  return null;
+}
+
+export function cacheKeywords(topic: string, keywords: string[]) {
+  // INSERT OR REPLACE
+  const existing = getCachedKeywords(topic);
+  if (existing) {
+    db.run("UPDATE keyword_banks SET keywords = ?, created_at = datetime('now') WHERE topic = ?",
+      [JSON.stringify(keywords), topic]);
+  } else {
+    db.run("INSERT INTO keyword_banks (id, topic, keywords) VALUES (?, ?, ?)",
+      [uuid(), topic, JSON.stringify(keywords)]);
+  }
+  saveDB();
+}
+
+// ========== 爆款帖子管理 (Viral Posts) ==========
+
+export function createViralPost(post: {
+  id: string; sessionId: string; xhsUrl: string; title?: string;
+  authorName?: string; authorFollowers?: number;
+  likes?: number; collects?: number; comments?: number;
+  durationSeconds?: number; publishedAt?: string;
+  scriptContent?: string; metadata?: string;
+}) {
+  db.run(
+    `INSERT INTO viral_posts (id, session_id, xhs_url, title, author_name, author_followers,
+     likes, collects, comments, duration_seconds, published_at, script_content, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      post.id, post.sessionId, post.xhsUrl, post.title || null,
+      post.authorName || null, post.authorFollowers || null,
+      post.likes || null, post.collects || null, post.comments || null,
+      post.durationSeconds || null, post.publishedAt || null,
+      post.scriptContent || null, post.metadata || null,
+    ]
+  );
+  saveDB();
+}
+
+export function updateViralPostVerification(
+  id: string, isVerified: boolean, notes?: string
+) {
+  db.run(
+    "UPDATE viral_posts SET is_verified = ?, verification_notes = ? WHERE id = ?",
+    [isVerified ? 1 : 0, notes || null, id]
+  );
+  saveDB();
+}
+
+export function getViralPostsBySession(sessionId: string) {
+  const results: any[] = [];
+  const stmt = db.prepare(
+    "SELECT * FROM viral_posts WHERE session_id = ? ORDER BY likes DESC"
+  );
+  stmt.bind([sessionId]);
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
+export function getVerifiedViralPosts(sessionId: string) {
+  const results: any[] = [];
+  const stmt = db.prepare(
+    "SELECT * FROM viral_posts WHERE session_id = ? AND is_verified = 1 ORDER BY likes DESC"
+  );
+  stmt.bind([sessionId]);
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
 }
