@@ -135,62 +135,164 @@ export async function parsePostWithOpenCLI(
   const authorEl = document.querySelector([
     '.username', '.author-name', '[class*="nickname"]',
     '.name', '[class*="author"] .name',
+    '[class*="user-name"]', '[class*="userName"]',
+    '[class*="nick"]', '[class*="author-name"]',
+    '[class*="user"] [class*="name"]',
+    '[class*="creator"] [class*="name"]',
+    '[class*="account"] [class*="name"]',
   ].join(', '));
   const authorName = authorEl ? (authorEl.textContent || '').trim() : '';
 
-  // 粉丝数 —— 优先在作者信息区域搜索，避免匹配评论区/侧边栏推荐
-  let followers = '';
-  const findFollowersInScope = (root) => {
-    const els = root.querySelectorAll('span, div, a');
-    for (const el of els) {
-      const text = (el.textContent || '').trim();
-      const m = text.match(/([\d,.]+万?)\s*粉丝/);
-      if (m) return m[1];
-    }
-    return '';
-  };
-  // 策略1：在作者名附近的容器中搜索（最可靠，避免全页误匹配）
-  if (authorName) {
-    let container = authorEl;
-    for (let i = 0; i < 6 && container; i++) {
-      const f = findFollowersInScope(container);
-      if (f) { followers = f; break; }
-      container = container.parentElement;
-    }
-  }
-  // 策略2：专用 CSS 选择器定位作者/profile 区域搜索
-  if (!followers) {
-    const profileAreas = document.querySelectorAll([
-      '[class*="author"]', '[class*="profile"]',
-      '[class*="user-info"]', '[class*="user"]', '[class*="info"]',
-    ].join(', '));
-    for (const area of profileAreas) {
-      const f = findFollowersInScope(area);
-      if (f) { followers = f; break; }
-    }
-  }
-  // 策略3：回退到评论区之前的主内容区域
-  if (!followers) {
-    const commentSection = document.querySelector([
-      '[class*="comment"]', '[class*="reply"]', '[class*="note-comment"]',
-    ].join(', '));
-    let beforeRoot = document.body;
-    if (commentSection && commentSection.previousElementSibling) {
-      beforeRoot = commentSection.previousElementSibling;
-    }
-    followers = findFollowersInScope(beforeRoot);
-  }
-  // 策略4：CSS 选择器直接取含粉丝计数的元素（最后回退）
-  if (!followers) {
-    const followerEl = document.querySelector([
-      '.followers', '.fans', '[class*="follower"] .count',
-      '.follower-count', '[class*="follower"] span',
-      '[class*="info"] [class*="count"]',
-    ].join(', '));
-    if (followerEl) followers = (followerEl.textContent || '').trim().replace('粉丝', '').trim();
-  }
-  if (!followers) console.log('[eval] 粉丝数: 未提取到');
-  else console.log('[eval] 粉丝数:', followers);
+	  // 粉丝数 —— 优先在作者信息区域搜索，避免匹配评论区/侧边栏推荐
+	  let followers = '';
+	  const findFollowersInScope = (root) => {
+	    if (!root) return '';
+	    const els = root.querySelectorAll('span, div, a');
+	    for (const el of els) {
+	      const text = (el.textContent || '').trim();
+	      const m = text.match(/([\\d,.]+万?)\\s*粉丝/);
+	      if (m) return m[1];
+	    }
+	    return '';
+	  };
+	  // 策略1：在作者名附近的容器中搜索（最可靠，避免全页误匹配）
+	  if (authorName) {
+	    let container = authorEl;
+	    let searchedLevels = 0;
+	    for (let i = 0; i < 6 && container; i++) {
+	      const f = findFollowersInScope(container);
+	      if (f) { followers = f; console.log('[eval] 粉丝数(strategy1): 在第' + i + '层找到, value=' + f); break; }
+	      searchedLevels = i + 1;
+	      container = container.parentElement;
+	    }
+	    if (!followers) console.log('[eval] 粉丝数(strategy1): authorEl存在但向上' + searchedLevels + '层未找到');
+	  } else {
+	    console.log('[eval] 粉丝数(strategy1): authorEl为null, 跳过 (authorName="' + (authorName || '') + '")');
+	  }
+	  // 策略2：专用 CSS 选择器定位作者/profile 区域搜索
+	  if (!followers) {
+	    const profileSelectors = [
+	      '[class*="author"]', '[class*="profile"]',
+	      '[class*="user-info"]', '[class*="user"]', '[class*="info"]',
+	      '[class*="username"]', '[class*="nickname"]',
+	      '[class*="userName"]', '[class*="nick"]',
+	      '[class*="user-card"]', '[class*="userCard"]',
+	      '[class*="author-card"]', '[class*="creator"]',
+	      '[class*="account"]',
+	    ];
+	    const profileAreas = document.querySelectorAll(profileSelectors.join(', '));
+	    let searchedAreas = 0;
+	    for (const area of profileAreas) {
+	      const f = findFollowersInScope(area);
+	      if (f) {
+	        followers = f;
+	        console.log('[eval] 粉丝数(strategy2): 在class="' + ((area.className || area.tagName) + '').slice(0,40) + '"中找到');
+	        break;
+	      }
+	      searchedAreas++;
+	    }
+	    if (!followers) console.log('[eval] 粉丝数(strategy2): 搜索了' + searchedAreas + '个profile区域, 均未找到');
+	  }
+	  // 策略3：回退到评论区之前的主内容区域
+	  if (!followers) {
+	    const commentSelectors = [
+	      '[class*="comment"]', '[class*="reply"]', '[class*="note-comment"]',
+	      '[class*="comments-container"]', '[class*="comment-list"]',
+	    ];
+	    const commentSection = document.querySelector(commentSelectors.join(', '));
+	    let beforeRoot = document.body;
+	    if (commentSection && commentSection.previousElementSibling) {
+	      beforeRoot = commentSection.previousElementSibling;
+	      console.log('[eval] 粉丝数(strategy3): 使用commentSection.previousElementSibling');
+	    } else if (commentSection && commentSection.parentElement) {
+	      beforeRoot = commentSection.parentElement;
+	      console.log('[eval] 粉丝数(strategy3): 回退使用commentSection.parentElement');
+	    } else {
+	      console.log('[eval] 粉丝数(strategy3): commentSection为' + (commentSection ? '存在但无可用父级' : 'null') + ', 回退到document.body');
+	    }
+	    followers = findFollowersInScope(beforeRoot);
+	    if (followers) console.log('[eval] 粉丝数(strategy3): 在评论区前区域找到, value=' + followers);
+	    else console.log('[eval] 粉丝数(strategy3): 评论区前区域未找到');
+	  }
+	  // 策略4：CSS 选择器直接取含粉丝计数的元素
+	  if (!followers) {
+	    const followerSelectors = [
+	      '.followers', '.fans', '[class*="follower"] .count',
+	      '.follower-count', '[class*="follower"] span',
+	      '[class*="info"] [class*="count"]',
+	      '[class*="follow"] [class*="count"]',
+	      '[class*="follow"] span',
+	      '.follower-number', '[class*="followerNum"]',
+	      '[class*="fan-count"]', '[class*="fanCount"]',
+	    ];
+	    const followerEl = document.querySelector(followerSelectors.join(', '));
+	    if (followerEl) {
+	      followers = (followerEl.textContent || '').trim().replace('粉丝', '').trim();
+	      console.log('[eval] 粉丝数(strategy4): 选择器命中, raw="' + followers + '"');
+	    } else {
+	      console.log('[eval] 粉丝数(strategy4): 所有选择器未命中');
+	    }
+	  }
+	  // 策略5（新增）：全局搜索所有含"粉丝"文本的元素，按位置+文本特征排序
+	  if (!followers) {
+	    const candidates = [];
+	    const allElements = document.querySelectorAll('span, div, a, p, strong, b');
+	    for (const el of allElements) {
+	      const text = (el.textContent || '').trim();
+	      if (!/[\\d]+/.test(text) || !text.includes('粉丝')) continue;
+	      const m = text.match(/([\\d,.]+万?)\\s*粉丝/);
+	      if (!m) continue;
+	      const rect = el.getBoundingClientRect();
+	      if (rect.width === 0 && rect.height === 0) continue;
+	      if (rect.top < -500 || rect.top > 2000) continue;
+	      let score = rect.top + text.length * 0.5;
+	      let ancestor = el.parentElement;
+	      for (let a = 0; a < 5 && ancestor; a++) {
+	        const cls = (ancestor.className || '').toString();
+	        if (/author|profile|user|info|creator|account/i.test(cls)) {
+	          score -= 500;
+	          break;
+	        }
+	        ancestor = ancestor.parentElement;
+	      }
+	      candidates.push({ value: m[1], score, top: Math.round(rect.top) });
+	    }
+	    candidates.sort(function(a, b) { return a.score - b.score; });
+	    if (candidates.length > 0) {
+	      console.log('[eval] 粉丝数(strategy5): 扫描到' + candidates.length + '个候选, top3: ' + JSON.stringify(candidates.slice(0,3)));
+	      followers = candidates[0].value;
+	      console.log('[eval] 粉丝数(strategy5): 选取最佳候选, value=' + followers);
+	    } else {
+	      console.log('[eval] 粉丝数(strategy5): 全局扫描未找到任何含"粉丝"的可视元素');
+	    }
+	  }
+	  // 调试：所有策略失败时，dump页面中所有含"粉丝"的元素文本
+	  if (!followers) {
+	    const debugEls = [];
+	    const allDebugEls = document.querySelectorAll('*');
+	    for (const el of allDebugEls) {
+	      const text = (el.textContent || '').trim();
+	      if (text.includes('粉丝') && text.length < 100) {
+	        const rect = el.getBoundingClientRect();
+	        debugEls.push({
+	          tag: el.tagName,
+	          cls: (el.className || '').toString().slice(0, 60),
+	          text: text.slice(0, 50),
+	          top: Math.round(rect.top),
+	          vis: rect.width > 0 && rect.height > 0,
+	        });
+	      }
+	    }
+	    const seen = new Set();
+	    const unique = debugEls.filter(function(d) {
+	      if (seen.has(d.text)) return false;
+	      seen.add(d.text);
+	      return true;
+	    });
+	    console.log('[eval] DEBUG 全部"粉丝"元素(' + unique.length + '个): ' + JSON.stringify(unique.slice(0, 15)));
+	  }
+	  if (!followers) console.log('[eval] 粉丝数: 最终未提取到');
+	  else console.log('[eval] 粉丝数 最终值:', followers);
 
   // 发布时间
   const timeEl = document.querySelector([
@@ -403,10 +505,19 @@ function extractPostDesc(markdown: string, pageTitle: string): string {
 /**
  * 从页面 markdown 中提取粉丝数和作者名
  * 匹配模式："1.2万粉丝"、"3,099粉丝"、"粉丝 5,432"、"约 1.2万 粉丝"
+ *
+ * 增强策略（2026-06）：
+ * - beforeComments 切分后追加日志，打印首尾片段便于诊断
+ * - 第一次搜索失败后，用全文本搜索取最后一个匹配（作者信息通常在页面顶部，最后一个非评论区的匹配大概率是作者）
+ * - 每个模式失败时打印日志
  */
 function extractFollowersFromMarkdown(md: string): { followers: number; authorName: string } {
   // 限制搜索范围：评论区之前（避免匹配到评论区用户"xx粉丝"）
   const beforeComments = md.split(/评论\s*\n|共\s*\d+\s*条\s*评论|相关笔记/)[0];
+
+  console.log(`[xhs-search] markdown粉丝提取: beforeComments 长度=${beforeComments.length}, 全文长度=${md.length}`);
+  console.log(`[xhs-search] markdown粉丝提取: beforeComments 前200字符: "${beforeComments.slice(0, 200)}"`);
+  console.log(`[xhs-search] markdown粉丝提取: beforeComments 后200字符: "${beforeComments.slice(-200)}"`);
 
   // 模式：数字(含逗号、小数点、万字) + 粉丝
   // 按优先级排序：先尝试完整数字，再尝试带"万"的
@@ -417,10 +528,65 @@ function extractFollowersFromMarkdown(md: string): { followers: number; authorNa
     /粉丝\s*[:：]?\s*(\d[\d,.]*\s*万)/, // "粉丝 1.2万"
   ];
 
+  const tryParseFollowers = (text: string, source: string): { followers: number; authorName: string } => {
+    for (const pat of followersPatterns) {
+      const m = text.match(pat);
+      if (m) {
+        const val = m[1].replace(/,/g, "").trim();
+        let followers = 0;
+        if (/万/i.test(val)) {
+          followers = Math.round(parseFloat(val) * 10000);
+        } else {
+          const n = parseInt(val, 10);
+          if (!isNaN(n) && n > 0) followers = n;
+        }
+        if (followers > 0) {
+          console.log(`[xhs-search] 从markdown提取粉丝数(${source}): ${followers} (匹配: "${m[0]}")`);
+          return { followers, authorName: "" };
+        }
+        console.log(`[xhs-search] markdown粉丝: 模式匹配到"${m[0]}"但解析后为0, 跳过`);
+      }
+    }
+    return { followers: 0, authorName: "" };
+  };
+
+  // 第一轮：在 beforeComments 范围内搜索
+  const result1 = tryParseFollowers(beforeComments, "beforeComments");
+  if (result1.followers > 0) return result1;
+
+  console.log(`[xhs-search] markdown粉丝: beforeComments 中未找到粉丝数，尝试全文搜索（取最后一个匹配）`);
+
+  // 第二轮回退：全文搜索，但取最后一个匹配（作者信息在页面顶部，
+  // 全文末尾的"粉丝"匹配大概率是推荐/关注列表，而顶部附近的更可靠。
+  // 但有些页面布局会把作者信息放在靠后，所以取最后一个非评论区匹配作为折中）
+  // 策略：找到所有匹配位置，排除明显在评论区的（通过位置判断），取最靠后的一个
+  const allMatches: Array<{ index: number; match: string; value: string }> = [];
   for (const pat of followersPatterns) {
-    const m = beforeComments.match(pat);
-    if (m) {
-      const val = m[1].replace(/,/g, "").trim();
+    // 使用 exec 循环获取所有匹配
+    const regex = new RegExp(pat.source, "g");
+    let execMatch: RegExpExecArray | null;
+    while ((execMatch = regex.exec(md)) !== null) {
+      allMatches.push({
+        index: execMatch.index,
+        match: execMatch[0],
+        value: execMatch[1],
+      });
+    }
+  }
+
+  if (allMatches.length > 0) {
+    console.log(`[xhs-search] markdown粉丝全文搜索: 找到 ${allMatches.length} 个候选`);
+    allMatches.forEach((m, i) => {
+      // 打印每个候选的前后文
+      const ctx = md.slice(Math.max(0, m.index - 20), m.index + m.match.length + 20);
+      console.log(`[xhs-search]   候选${i}: index=${m.index} match="${m.match}" ctx="...${ctx}..."`);
+    });
+
+    // 取最后一个有效匹配（排除明显在评论区或推荐区域的）
+    // 倒序遍历，跳过疑似评论区用户项（如 "昵称 · 123粉丝" 格式在评论中很常见）
+    for (let i = allMatches.length - 1; i >= 0; i--) {
+      const m = allMatches[i];
+      const val = m.value.replace(/,/g, "").trim();
       let followers = 0;
       if (/万/i.test(val)) {
         followers = Math.round(parseFloat(val) * 10000);
@@ -428,13 +594,30 @@ function extractFollowersFromMarkdown(md: string): { followers: number; authorNa
         const n = parseInt(val, 10);
         if (!isNaN(n) && n > 0) followers = n;
       }
-      if (followers > 0) {
-        console.log(`[xhs-search] 从markdown提取粉丝数: ${followers} (匹配: "${m[0]}")`);
+      // 过滤：粉丝数太小（<10）的像是评论用户，太大的（>10亿）不合理
+      if (followers >= 50) {
+        console.log(`[xhs-search] 从markdown全文搜索提取粉丝数: ${followers} (候选${i}, 匹配: "${m.match}")`);
         return { followers, authorName: "" };
       }
     }
+
+    // 如果都被过滤了，取最后一个作为兜底（即使粉丝数<50，也比"未知"好）
+    const last = allMatches[allMatches.length - 1];
+    const lastVal = last.value.replace(/,/g, "").trim();
+    let lastFollowers = 0;
+    if (/万/i.test(lastVal)) {
+      lastFollowers = Math.round(parseFloat(lastVal) * 10000);
+    } else {
+      const n = parseInt(lastVal, 10);
+      if (!isNaN(n) && n > 0) lastFollowers = n;
+    }
+    if (lastFollowers > 0) {
+      console.log(`[xhs-search] 从markdown全文搜索提取粉丝数(兜底): ${lastFollowers} (最后一个候选, 匹配: "${last.match}")`);
+      return { followers: lastFollowers, authorName: "" };
+    }
   }
 
+  console.log(`[xhs-search] markdown粉丝: 全文也未找到任何"数字+粉丝"匹配`);
   return { followers: 0, authorName: "" };
 }
 
