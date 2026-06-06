@@ -198,7 +198,8 @@ export default function Step2Search({
       {autoSearchResults.length > 0 && (
         <div className="border border-gray-100 rounded-lg p-2 space-y-2">
           <p className="text-sm font-medium text-gray-700">
-            搜索到 {autoSearchResults.length} 条结果（按匹配度排序，单选一条导入）
+            搜索到 {autoSearchResults.length} 条结果
+            （图文 {noteResults.length}/5 · 视频 {videoResults.length}/5，按匹配度排序，单选一条导入）
           </p>
 
           {/* 高于阈值：左右两列网格（有内容的列才渲染） */}
@@ -208,7 +209,7 @@ export default function Step2Search({
               {noteAbove.length > 0 && (
                 <div className="space-y-1 min-w-0">
                   <p className="text-xs text-blue-600 font-medium sticky top-0 bg-white py-0.5">
-                    📄 图文 ({noteAbove.length}条)
+                    📄 图文 ({noteAbove.length}条{noteAbove.length < 5 ? `，目标5条` : ""})
                   </p>
                   <div className="max-h-64 overflow-y-auto space-y-0.5">
                     {noteAbove.map(renderResultCard)}
@@ -220,7 +221,7 @@ export default function Step2Search({
               {videoAbove.length > 0 && (
                 <div className="space-y-1 min-w-0">
                   <p className="text-xs text-purple-600 font-medium sticky top-0 bg-white py-0.5">
-                    🎬 视频 ({videoAbove.length}条)
+                    🎬 视频 ({videoAbove.length}条{videoAbove.length < 5 ? `，目标5条` : ""})
                   </p>
                   <div className="max-h-64 overflow-y-auto space-y-0.5">
                     {videoAbove.map(renderResultCard)}

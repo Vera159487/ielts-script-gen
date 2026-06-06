@@ -93,6 +93,9 @@ async function searchViaBing(
       const results = await searchBingForKeyword(keyword, maxPerKeyword);
 
       for (const r of results) {
+        // 相关性校验：标题或摘要必须包含关键词或雅思相关词汇
+        if (!isRelevantToIelts(r.title, r.snippet, r.keyword)) continue;
+
         // 四维预筛选（不再丢弃，仅附加 matchPercent 供前端排序）
         const filter = preFilterSearchResult(r);
 
@@ -110,6 +113,31 @@ async function searchViaBing(
       await sleep(500);
     } catch {
       // 单个关键词搜索失败不中断整体
+    }
+  }
+
+  // 兜底：如果结果严重不足（不到 3 条），用更宽泛的雅思关联词再搜一轮
+  if (allResults.length < 3 && searchKeywords.length > 0) {
+    console.log(`[xhs-search] 主搜索仅获 ${allResults.length} 条，启动宽泛关联词补充搜索...`);
+    const broadTerms = ["英语学习", "出国留学", "英语口语", "备考经验", "学习方法"];
+    for (const term of broadTerms) {
+      try {
+        const results = await searchBingForKeyword(term, maxPerKeyword);
+        for (const r of results) {
+          // 宽泛词也必须通过雅思相关性校验
+          if (!isRelevantToIelts(r.title, r.snippet, r.keyword)) continue;
+          const filter = preFilterSearchResult(r);
+          const normalized = normalizeXHSLink(r.url);
+          if (!seenUrls.has(normalized)) {
+            seenUrls.add(normalized);
+            allResults.push({ ...r, url: normalized, matchPercent: filter.avgMatchPercent });
+          }
+        }
+        if (allResults.length >= 10) break;
+        await sleep(500);
+      } catch {
+        // 补充搜索失败不中断
+      }
     }
   }
 
@@ -308,6 +336,36 @@ function isXHSDomain(url: string): boolean {
   }
 }
 
+// ========== 相关性校验 ==========
+
+/** 雅思相关通用词汇（标题/摘要命中即视为相关） */
+const IELTS_RELATED_TERMS = [
+  "雅思", "ielts", "英语", "备考", "口语", "听力", "阅读",
+  "写作", "词汇", "真题", "技巧", "出国", "留学", "应试",
+  "考试", "分数", "提分", "上岸", "逆袭", "模拟", "突击",
+  "机经", "外教", "英文", "语法", "单词",
+];
+
+/**
+ * 检查 Bing 搜索结果是否与雅思/英语学习相关
+ * 标题或摘要中必须包含关键词分词片段，或雅思相关通用词
+ */
+function isRelevantToIelts(title: string, snippet: string, keyword: string): boolean {
+  const combined = `${title} ${snippet}`.toLowerCase();
+
+  // 1. 完整关键词匹配
+  if (combined.includes(keyword.toLowerCase())) return true;
+
+  // 2. 关键词分词匹配：至少2字的中文片段
+  const tokens = keyword.split(/[\s,，、/]+/).filter((t) => t.length >= 2);
+  if (tokens.some((t) => combined.includes(t.toLowerCase()))) return true;
+
+  // 3. 雅思相关通用词匹配
+  if (IELTS_RELATED_TERMS.some((t) => combined.includes(t))) return true;
+
+  return false;
+}
+
 // ========== 方案 B: OpenCLI 搜索（Chrome 扩展 + 小红书已登录） ==========
 
 async function searchViaOpenCLI(
@@ -328,6 +386,9 @@ async function searchViaOpenCLI(
       const results = await searchXHSWithBrowser(keyword, maxPerKeyword);
 
       for (const r of results) {
+        // 相关性校验（小红书站内搜索一般已相关，作为安全网）
+        if (!isRelevantToIelts(r.title, r.snippet, r.keyword)) continue;
+
         // 四维预筛选（不再丢弃，仅附加 matchPercent 供前端排序）
         const filter = preFilterSearchResult(r);
         const normalized = normalizeXHSLink(r.url);
@@ -343,6 +404,30 @@ async function searchViaOpenCLI(
       const msg = err.message || String(err);
       console.error(`[xhs-search] OpenCLI 搜索 "${keyword}" 失败:`, msg);
       errors.push(msg);
+    }
+  }
+
+  // 兜底：如果结果严重不足（不到 3 条），用更宽泛的雅思关联词再搜一轮
+  if (allResults.length < 3 && searchKeywords.length > 0) {
+    console.log(`[xhs-search] 主搜索仅获 ${allResults.length} 条，启动宽泛关联词补充搜索...`);
+    const broadTerms = ["英语学习", "出国留学", "英语口语", "备考经验", "学习方法"];
+    for (const term of broadTerms) {
+      try {
+        const results = await searchXHSWithBrowser(term, maxPerKeyword);
+        for (const r of results) {
+          if (!isRelevantToIelts(r.title, r.snippet, r.keyword)) continue;
+          const filter = preFilterSearchResult(r);
+          const normalized = normalizeXHSLink(r.url);
+          if (!seenUrls.has(normalized)) {
+            seenUrls.add(normalized);
+            allResults.push({ ...r, url: normalized, matchPercent: filter.avgMatchPercent });
+          }
+        }
+        if (allResults.length >= 10) break;
+        await sleep(500);
+      } catch (err: any) {
+        console.error(`[xhs-search] 宽泛词 "${term}" 搜索失败:`, err.message || String(err));
+      }
     }
   }
 
