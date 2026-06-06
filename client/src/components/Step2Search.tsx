@@ -116,9 +116,12 @@ export default function Step2Search({
     const pct = r.matchPercent;
     const isImported = importedUrls.has(stripQs(r.url));
     const isSelected = selectedUrl === r.url;
+    const radioId = `xhs-radio-${r.url.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 60)}`;
+    const WrapTag = isImported ? "div" : "label";
     return (
-      <label
+      <WrapTag
         key={r.url}
+        {...(WrapTag === "label" ? { htmlFor: radioId } : {})}
         className={`flex items-start gap-1.5 p-1 rounded hover:bg-gray-50 ${isImported ? "cursor-default opacity-50" : "cursor-pointer"}`}
       >
         {isImported ? (
@@ -126,6 +129,7 @@ export default function Step2Search({
         ) : (
           <input
             type="radio"
+            id={radioId}
             name="xhs-result-radio"
             checked={isSelected}
             onChange={() => selectOne(r.url)}
@@ -148,7 +152,7 @@ export default function Step2Search({
           </div>
           <p className="text-xs text-gray-400 truncate">{r.snippet}</p>
         </div>
-      </label>
+      </WrapTag>
     );
   };
 
@@ -262,6 +266,8 @@ export default function Step2Search({
         </summary>
         <div className="mt-2 space-y-2">
           <textarea
+            id="xhs-manual-url"
+            name="xhs-manual-url"
             className="input-field min-h-[60px] resize-y text-sm"
             placeholder="https://xhslink.com/xxxxx"
             value={urlInput}

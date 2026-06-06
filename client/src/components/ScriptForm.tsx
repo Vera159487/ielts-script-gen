@@ -40,10 +40,12 @@ export default function ScriptForm({
     <form onSubmit={handleSubmit} className="card space-y-5">
       {/* 话题输入 */}
       <div>
-        <label className="block text-sm font-semibold text-gray-700 mb-2">
+        <label htmlFor="script-topic" className="block text-sm font-semibold text-gray-700 mb-2">
           📝 输入雅思话题
         </label>
         <textarea
+          id="script-topic"
+          name="script-topic"
           className="input-field min-h-[80px] resize-y"
           placeholder='例如："雅思口语Part 2 描述一个喜欢的地方"、"雅思阅读判断题总是错怎么办"、"21天雅思7分备考计划"'
           value={topic}
@@ -76,6 +78,8 @@ export default function ScriptForm({
         </button>
         {showReference && (
           <textarea
+            id="script-reference"
+            name="script-reference"
             className="input-field min-h-[100px] resize-y mt-2"
             placeholder="粘贴小红书爆款视频的逐字稿作为参考，AI 会学习其结构和节奏..."
             value={referenceScript}

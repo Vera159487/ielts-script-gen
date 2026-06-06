@@ -150,10 +150,12 @@ export default function PipelineWizard() {
               <div className="card space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    <label htmlFor="pipeline-topic" className="block text-sm font-semibold text-gray-700 mb-1">
                       输入雅思话题
                     </label>
                     <textarea
+                      id="pipeline-topic"
+                      name="pipeline-topic"
                       className="input-field min-h-[60px] resize-y"
                       placeholder="例如：雅思口语Part2 描述一个喜欢的地方、雅思阅读判断题总是错怎么办"
                       value={topicInput}
