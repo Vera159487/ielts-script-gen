@@ -34,10 +34,11 @@ import {
   updateViralPostVerification,
   getStyleById,
   createScript,
+  mapDbRowToViralPost,
 } from "../db";
 import { parseXHSLink, cleanAuthorName } from "./xhs-scraper";
 import { parsePostWithOpenCLI } from "./xhs-search";
-import { normalizeXHSLink } from "../utils";
+import { normalizeXHSLink, safeParseJson, parseChineseDate } from "../utils";
 import {
   FILTER_THRESHOLDS,
   ProgressEvent,
@@ -174,56 +175,6 @@ export async function* executePipeline(
 
 // ========== 工具函数 ==========
 
-/**
- * 安全解析 AI 返回的 JSON，自动处理 markdown 代码块和额外文本
- */
-function safeParseJson(text: string): any {
-  let cleaned = text.trim();
-
-  // 移除 markdown 代码块包裹
-  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (fenceMatch) {
-    cleaned = fenceMatch[1].trim();
-  }
-
-  // 如果文本不直接以 JSON 开头，尝试找到 JSON 的起始位置
-  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
-    const jsonStart = Math.min(
-      cleaned.indexOf("{") === -1 ? Infinity : cleaned.indexOf("{"),
-      cleaned.indexOf("[") === -1 ? Infinity : cleaned.indexOf("[")
-    );
-    if (jsonStart !== Infinity) {
-      cleaned = cleaned.slice(jsonStart);
-    }
-  }
-
-  // 如果文本以 { 或 [ 开头，尝试截取到对应的闭合位置
-  if (cleaned.startsWith("{") || cleaned.startsWith("[")) {
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-    let endIndex = cleaned.length;
-    for (let i = 0; i < cleaned.length; i++) {
-      const ch = cleaned[i];
-      if (escape) { escape = false; continue; }
-      if (ch === "\\") { escape = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
-      if (inString) continue;
-      if (ch === "{" || ch === "[") { depth++; }
-      else if (ch === "}" || ch === "]") {
-        depth--;
-        if (depth === 0) {
-          endIndex = i + 1;
-          break;
-        }
-      }
-    }
-    cleaned = cleaned.slice(0, endIndex);
-  }
-
-  return JSON.parse(cleaned);
-}
-
 /** URL 去重别名（自注释，指向统一工具函数） */
 const stripQs = (u: string): string => normalizeXHSLink(u, { stripQuery: true });
 
@@ -280,23 +231,6 @@ async function runKeywordsStep(ctx: PipelineContext): Promise<void> {
   if (allKeywords.length > 0) {
     cacheKeywords(ctx.topic, allKeywords);
   }
-}
-
-function mapDbRowToViralPost(row: any): ViralPostData {
-  return {
-    id: row.id,
-    xhsUrl: row.xhs_url,
-    title: row.title,
-    authorName: row.author_name,
-    authorFollowers: row.author_followers,
-    likes: row.likes,
-    collects: row.collects,
-    comments: row.comments,
-    durationSeconds: row.duration_seconds,
-    publishedAt: row.published_at,
-    scriptContent: row.script_content,
-    postType: row.post_type || "note",
-  };
 }
 
 async function runSearchStep(ctx: PipelineContext): Promise<void> {
@@ -581,50 +515,13 @@ export async function addViralPostsFromSearchResults(
 
 /**
  * 将 publishedAt 文本解析为有效的时间戳（毫秒）
- * 支持：ISO 日期、中文日期、相对时间（"发布于307天前"等）
+ * 委托给共享的 parseChineseDate 做解析，仅负责返回格式转换
  * 返回 null 表示无法解析
  */
 function parsePublishedAtToTimestamp(raw: string | undefined): number | null {
   if (!raw) return null;
-
-  // 1. 直接解析（ISO 字符串、时间戳等）
-  const parsed = new Date(raw);
-  const ts = parsed.getTime();
-  // 必须在合理范围：非未来、不早于 10 年前
-  if (!isNaN(ts) && ts <= Date.now() && ts > Date.now() - 10 * 365 * 24 * 60 * 60 * 1000) {
-    return ts;
-  }
-
-  // 2. 尝试相对时间："发布于307天前" / "发布于 2天前" / "3小时前" / "刚刚"
-  let m = raw.match(/发布于?\s*(\d+)\s*天前/);
-  if (m) {
-    const days = parseInt(m[1], 10);
-    if (days >= 0 && days <= 3650) return Date.now() - days * 86400000;
-  }
-
-  m = raw.match(/发布于?\s*(\d+)\s*小时前/);
-  if (m) return Date.now() - parseInt(m[1], 10) * 3600000;
-
-  m = raw.match(/发布于?\s*(\d+)\s*分钟前/);
-  if (m) return Date.now() - parseInt(m[1], 10) * 60000;
-
-  if (raw.includes("刚刚")) return Date.now();
-
-  // 3. 尝试中文日期："2025年5月28日" / "5月28日"
-  m = raw.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) return new Date(`${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}T00:00:00+08:00`).getTime();
-
-  m = raw.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) {
-    const mo = parseInt(m[1], 10);
-    const d = parseInt(m[2], 10);
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
-      const y = new Date().getFullYear();
-      return new Date(`${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}T00:00:00+08:00`).getTime();
-    }
-  }
-
-  return null;
+  const date = parseChineseDate(raw);
+  return date ? date.getTime() : null;
 }
 
 /**

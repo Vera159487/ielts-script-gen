@@ -15,7 +15,7 @@ import { promisify } from "util";
 import { homedir } from "os";
 import { FILTER_THRESHOLDS } from "../types";
 import { cleanAuthorName } from "./xhs-scraper";
-import { normalizeXHSLink } from "../utils";
+import { normalizeXHSLink, parseChineseDate } from "../utils";
 
 const execFileAsync = promisify(execFile);
 
@@ -906,70 +906,41 @@ function extractDurationFromMarkdown(md: string): number | undefined {
 
 /**
  * 从页面 markdown 中提取发布时间
- * 支持：ISO日期、"2025年5月28日"、"5月28日"、相对时间"发布于307天前"等
+ * 扫描全文寻找日期候选文本，解析委托给共享的 parseChineseDate
  * 返回 ISO 日期字符串（YYYY-MM-DD），未提取到时返回 undefined
  */
 function extractTimeFromMarkdown(md: string): string | undefined {
+  // 候选提取顺序：ISO → 中文完整 → 中文简写 → 相对时间 → 刚刚
+  const candidates: string[] = [];
+
   // 模式1：ISO格式日期 "2025-05-28" 或 "2025/05/28"
   const isoM = md.match(/\b((20\d{2})[-/](\d{1,2})[-/](\d{1,2}))\b/);
-  if (isoM) {
-    const y = parseInt(isoM[2], 10);
-    const m = parseInt(isoM[3], 10);
-    const d = parseInt(isoM[4], 10);
-    // 验证月份和日期在合理范围
-    if (y >= 2015 && y <= 2030 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    }
-  }
+  if (isoM) candidates.push(isoM[1]);
 
   // 模式2：中文完整日期 "2025年5月28日"
-  let m = md.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) {
-    return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  }
+  const cnFullM = md.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (cnFullM) candidates.push(cnFullM[0]);
 
-  // 模式3：简写中文 "5月28日"（补充当前年份）
-  m = md.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) {
-    const year = new Date().getFullYear();
-    const month = parseInt(m[1], 10);
-    const day = parseInt(m[2], 10);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    }
-  }
+  // 模式3：简写中文 "5月28日"（parseChineseDate 自动补充当前年份）
+  const cnShortM = md.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (cnShortM) candidates.push(cnShortM[0]);
 
-  // 模式4：相对时间 "发布于307天前" / "发布于 2天前" / "3小时前"
-  m = md.match(/发布于?\s*(\d+)\s*天前/);
-  if (m) {
-    const days = parseInt(m[1], 10);
-    if (days >= 0 && days <= 3650) {
-      const d = new Date(Date.now() - days * 86400000);
-      return d.toISOString().split("T")[0];
-    }
-  }
+  // 模式4：相对时间 "发布于307天前" / "发布于 2天前" / "3小时前" / "X分钟前"
+  const dayM = md.match(/发布于?\s*(\d+)\s*天前/);
+  if (dayM) candidates.push(dayM[0]);
 
-  m = md.match(/发布于?\s*(\d+)\s*小时前/);
-  if (m) {
-    const hours = parseInt(m[1], 10);
-    if (hours >= 0) {
-      const d = new Date(Date.now() - hours * 3600000);
-      return d.toISOString().split("T")[0];
-    }
-  }
+  const hourM = md.match(/发布于?\s*(\d+)\s*小时前/);
+  if (hourM) candidates.push(hourM[0]);
 
-  m = md.match(/发布于?\s*(\d+)\s*分钟前/);
-  if (m) {
-    const mins = parseInt(m[1], 10);
-    if (mins >= 0) {
-      const d = new Date(Date.now() - mins * 60000);
-      return d.toISOString().split("T")[0];
-    }
-  }
+  const minM = md.match(/发布于?\s*(\d+)\s*分钟前/);
+  if (minM) candidates.push(minM[0]);
 
   // 模式5："刚刚" → 当作今天
-  if (md.includes("刚刚")) {
-    return new Date().toISOString().split("T")[0];
+  if (md.includes("刚刚")) candidates.push("刚刚");
+
+  for (const cand of candidates) {
+    const date = parseChineseDate(cand);
+    if (date) return date.toISOString().split("T")[0];
   }
 
   return undefined;

@@ -1,21 +1,6 @@
 import { useState, useMemo } from "react";
 import type { ViralPost, XHSSearchResult } from "../types";
-import { formatNumber, stripQs } from "../utils";
-
-// 匹配度百分比颜色（纯函数，模块级定义避免每次渲染重建）
-function getMatchColor(pct: number): string {
-  if (pct >= 90) return "text-green-600";
-  if (pct >= 70) return "text-amber-500";
-  if (pct >= 50) return "text-orange-500";
-  return "text-red-500";
-}
-
-function getMatchBgColor(pct: number): string {
-  if (pct >= 90) return "bg-green-50";
-  if (pct >= 70) return "bg-amber-50";
-  if (pct >= 50) return "bg-orange-50";
-  return "bg-red-50";
-}
+import { formatNumber, stripQs, getMatchColor, getMatchBgColor } from "../utils";
 
 interface Props {
   keywords: string[];

@@ -53,7 +53,12 @@ function _hasRealData(r: XHSPostData): boolean {
 }
 
 /**
- * JSON 宽松解析：先尝试 undefined→null 替换，再尝试清理尾部多余逗号
+ * JSON 宽松解析（HTML 内嵌 JS 对象专用）
+ *
+ * 与 utils.ts 中的 safeParseJson 不同：
+ *   - safeParseJson 处理 AI 返回内容（markdown 代码块包裹、额外文本前缀/后缀、未闭合截断）
+ *   - 本函数处理 HTML 中内嵌的 JS 对象字面量（undefined 值替换为 null、清理尾部多余逗号）
+ * 两者服务于不同场景，不可互相替换。
  */
 function _parseJSONRelaxed(str: string): any {
   try {

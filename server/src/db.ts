@@ -2,6 +2,7 @@ import initSqlJs, { Database, BindParams } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { v4 as uuid } from "uuid";
+import { ViralPostData } from "./types";
 
 const DB_PATH = resolve(__dirname, "../data.db");
 
@@ -568,5 +569,26 @@ export function getViralPostsBySession(sessionId: string) {
   }
   stmt.free();
   return results;
+}
+
+/**
+ * 将 DB 行的 snake_case 字段映射为 camelCase 的 ViralPostData
+ * 数据访问层逻辑，不应放在编排器中
+ */
+export function mapDbRowToViralPost(row: any): ViralPostData {
+  return {
+    id: row.id,
+    xhsUrl: row.xhs_url,
+    title: row.title,
+    authorName: row.author_name,
+    authorFollowers: row.author_followers,
+    likes: row.likes,
+    collects: row.collects,
+    comments: row.comments,
+    durationSeconds: row.duration_seconds,
+    publishedAt: row.published_at,
+    scriptContent: row.script_content,
+    postType: row.post_type || "note",
+  };
 }
 

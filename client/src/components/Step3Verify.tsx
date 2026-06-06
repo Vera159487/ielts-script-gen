@@ -1,4 +1,5 @@
 import type { VerifyResult, FilterDetail } from "../types";
+import { getMatchColor } from "../utils";
 
 interface Props {
   verifyResult: VerifyResult | null;
@@ -6,12 +7,12 @@ interface Props {
   stepMessage: string;
 }
 
-/** 匹配度样式（进度条 + 文字颜色统一阈值） */
-function matchPercentStyle(pct: number): { bar: string; text: string } {
-  if (pct >= 90) return { bar: "bg-green-500", text: "text-green-600" };
-  if (pct >= 70) return { bar: "bg-yellow-500", text: "text-yellow-600" };
-  if (pct >= 50) return { bar: "bg-orange-500", text: "text-orange-600" };
-  return { bar: "bg-red-500", text: "text-red-600" };
+/** 匹配度百分比 → 进度条实色 class */
+function getMatchBarColor(pct: number): string {
+  if (pct >= 90) return "bg-green-500";
+  if (pct >= 70) return "bg-yellow-500";
+  if (pct >= 50) return "bg-orange-500";
+  return "bg-red-500";
 }
 
 /** 单个过滤维度卡片 */
@@ -22,13 +23,13 @@ function FilterRow({ label, icon, detail }: { label: string; icon: string; detai
         <span className="text-sm font-medium text-gray-700">
           {icon} {label}
         </span>
-        <span className={`text-sm font-bold ${matchPercentStyle(detail.matchPercent).text}`}>
+        <span className={`text-sm font-bold ${getMatchColor(detail.matchPercent)}`}>
           {detail.matchPercent}%
         </span>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-1 mb-1">
         <div
-          className={`h-1 rounded-full transition-all ${matchPercentStyle(detail.matchPercent).bar}`}
+          className={`h-1 rounded-full transition-all ${getMatchBarColor(detail.matchPercent)}`}
           style={{ width: `${detail.matchPercent}%` }}
         />
       </div>

@@ -1,4 +1,26 @@
 /**
+ * 匹配度百分比 → 文字颜色 class（统一阈值）
+ * >=90 绿色, >=70 黄色/amber, >=50 橙色, <50 红色
+ */
+export function getMatchColor(pct: number): string {
+  if (pct >= 90) return "text-green-600";
+  if (pct >= 70) return "text-amber-500";
+  if (pct >= 50) return "text-orange-500";
+  return "text-red-500";
+}
+
+/**
+ * 匹配度百分比 → 浅色背景 class（用于标签/徽章）
+ * 阈值同上
+ */
+export function getMatchBgColor(pct: number): string {
+  if (pct >= 90) return "bg-green-50";
+  if (pct >= 70) return "bg-amber-50";
+  if (pct >= 50) return "bg-orange-50";
+  return "bg-red-50";
+}
+
+/**
  * 去除 URL 查询参数，用于 URL 去重比较
  * 客户端和搜索端各有一份，统一至此
  */
