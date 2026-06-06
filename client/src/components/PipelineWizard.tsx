@@ -165,9 +165,9 @@ export default function PipelineWizard() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    <span className="block text-sm font-semibold text-gray-700 mb-1">
                       选择脚本风格（可选）
-                    </label>
+                    </span>
                     <StyleSelector
                       styles={styles}
                       selectedId={pipeline.styleId}

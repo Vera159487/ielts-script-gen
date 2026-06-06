@@ -56,9 +56,9 @@ export default function ScriptForm({
 
       {/* 风格选择 */}
       <div>
-        <label className="block text-sm font-semibold text-gray-700 mb-2">
+        <span className="block text-sm font-semibold text-gray-700 mb-2">
           🎨 选择脚本风格
-        </label>
+        </span>
         <StyleSelector
           styles={styles}
           selectedId={styleId}
