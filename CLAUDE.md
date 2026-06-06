@@ -133,7 +133,9 @@ npm run dev              # Start both (server:3001 + client:5173)
 | Agent | 主拥有文件 | 何时使用 |
 |-------|-----------|---------|
 | `step1-keywords` | `prompts/keywords.ts`、pipeline 中 `runKeywordsStep` | 关键词 prompt、缓存策略、JSON 解析降级 |
-| `step2-search` | `xhs-scraper.ts`、`xhs-search.ts`、pipeline 中 `addViral*` 系列 | XHS 链接解析、Bing/OpenCLI 搜索、xsecToken 传递链、视频/图文分类 |
+| `step2-search` | `xhs-search.ts`（搜索部分）、`Step2Search.tsx`（共享） | 小红书搜索发现（Bing/OpenCLI）、关键词构造、xsecToken 传递、预筛选 |
+| `step2-extract` | `xhs-scraper.ts`、`xhs-extract.ts` | 帖子数据提取（HTTP 多策略 + OpenCLI 详情解析）、降级策略 |
+| `step2-pipeline` | `pipeline.ts`（Step2 函数）、`routes/pipeline.ts`（共享） | 数据导入合并、四维过滤评分、Step 2 API 端点 |
 | `step3-verify` | `prompts/verifier.ts`（已废弃，改用数学计算）、pipeline 中 `runVerifyStep`/`computeFilterDetails` | 四维过滤标准、匹配度算法、百分比展示 |
 | `step4-rewrite` | `prompts/rewriter.ts`、pipeline 中 `runRewriteStep` | SOP 四大改写规则、三件套输出、IP 信息注入、流式改写 |
 | `ui-designer` | `index.css`、各 Step 组件的视觉样式 | TailwindCSS 布局、响应式、设计规范一致性 |

@@ -37,7 +37,7 @@ import {
   mapDbRowToViralPost,
 } from "../db";
 import { parseXHSLink, cleanAuthorName } from "./xhs-scraper";
-import { parsePostWithOpenCLI } from "./xhs-search";
+import { parsePostWithOpenCLI } from "./xhs-extract";
 import { normalizeXHSLink, safeParseJson, parseChineseDate } from "../utils";
 import {
   FILTER_THRESHOLDS,
