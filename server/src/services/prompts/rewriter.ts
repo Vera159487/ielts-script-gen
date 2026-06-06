@@ -9,26 +9,9 @@
  *   4. 输出三件套：原链接 + 原脚本 + 终稿
  */
 
-// ========== 破7学院 IP 信息 ==========
+// ========== 破7学院 IP 信息（从共享模块导入，与 generate 流程保持一致） ==========
 
-const IP_INFO = `
-【博主 IP 信息 — 必须自然融入脚本】
-- 雅思 8.5 分（阅读 9 分、听力 9 分）
-- 双名校背景：UCSD（加州大学圣地亚哥分校）转学上海财经大学
-- 累计带过 2000+ 学员，70% 学员 21 天达目标分
-- "逆向解题法" 首创者
-- 专注定制化教学，为每个学员定制专属备考方案，拒绝流水线
-`;
-
-const CORE_BELIEFS = `
-【博主核心理念 — 用"我常说"引出】
-- 不要背单词，而要分析雅思考试的底层逻辑
-- 雅思归根结底是一场应试，只要是应试就有迹可循，掌握了雅思的解题方法论就能短期轻松提分
-- 备考雅思千万不要拉长战线，只要掌握了正确的方法论，雅思的提分是立竿见影的
-- 雅思的提分不是每个科目分别 0.5、0.5 的往上提的，一旦你掌握了底层逻辑，是会瞬间恍然大悟的
-- 雅思备考不应该是埋头苦学，而应该是恍然大悟
-- 不要通过学英语来提分，比如背单词、学语法，这样很慢，而应该是以提分为首要目标，在提分的过程中英语能力自然也提升了
-`;
+import { IP_INFO, CORE_BELIEFS } from "../prompt";
 
 // ========== 输出格式 ==========
 
@@ -123,9 +106,7 @@ ${OUTPUT_FORMAT}`;
 export function buildRewriterUserPrompt(
   topic: string,
   originalScript: string,
-  sourceUrl?: string,
-  strengthAnalysis?: string,
-  rewriteSuggestion?: string
+  sourceUrl?: string
 ): string {
   let prompt = `请按 SOP 改写规则，为以下雅思话题创作二创脚本：
 
@@ -136,14 +117,6 @@ export function buildRewriterUserPrompt(
   }
 
   prompt += `\n【原爆款脚本 — 请基于此进行二创改写】\n${originalScript}`;
-
-  if (strengthAnalysis) {
-    prompt += `\n\n【原爆款亮点分析】${strengthAnalysis}`;
-  }
-
-  if (rewriteSuggestion) {
-    prompt += `\n【二创建议】${rewriteSuggestion}`;
-  }
 
   prompt += `\n\n请严格按照 SOP 改写规则输出完整脚本。记得包含原链接和原脚本信息。`;
   return prompt;

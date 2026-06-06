@@ -15,13 +15,13 @@ export default function StyleSelector({ styles, selectedId, onSelect }: Props) {
           <button
             key={style.id}
             onClick={() => onSelect(style.id)}
-            className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 ${
+            className={`relative flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
               isSelected
-                ? "border-brand-500 bg-brand-50 shadow-md scale-[1.03]"
-                : "border-gray-100 bg-white hover:border-gray-300 hover:shadow-sm"
+                ? "border-brand-500 bg-brand-50"
+                : "border-gray-100 bg-white hover:border-gray-300"
             }`}
           >
-            <span className="text-3xl">{style.icon}</span>
+            <span className="text-2xl">{style.icon}</span>
             <span
               className={`text-sm font-semibold ${
                 isSelected ? "text-brand-700" : "text-gray-700"

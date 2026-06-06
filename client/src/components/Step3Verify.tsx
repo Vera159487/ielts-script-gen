@@ -1,55 +1,82 @@
-import type { ViralPost, VerifyResult } from "../types";
+import type { VerifyResult, FilterDetail } from "../types";
 
 interface Props {
-  viralPosts: ViralPost[];
-  verifiedPost: ViralPost | null;
   verifyResult: VerifyResult | null;
   stepStatus: "pending" | "running" | "completed" | "failed";
   stepMessage: string;
-  onSelectPost: (post: ViralPost) => void;
+}
+
+/** 匹配度样式（进度条 + 文字颜色统一阈值） */
+function matchPercentStyle(pct: number): { bar: string; text: string } {
+  if (pct >= 90) return { bar: "bg-green-500", text: "text-green-600" };
+  if (pct >= 70) return { bar: "bg-yellow-500", text: "text-yellow-600" };
+  if (pct >= 50) return { bar: "bg-orange-500", text: "text-orange-600" };
+  return { bar: "bg-red-500", text: "text-red-600" };
+}
+
+/** 单个过滤维度卡片 */
+function FilterRow({ label, icon, detail }: { label: string; icon: string; detail: FilterDetail }) {
+  return (
+    <div className="bg-white rounded-lg p-2 border border-gray-100">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm font-medium text-gray-700">
+          {icon} {label}
+        </span>
+        <span className={`text-sm font-bold ${matchPercentStyle(detail.matchPercent).text}`}>
+          {detail.matchPercent}%
+        </span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-1 mb-1">
+        <div
+          className={`h-1 rounded-full transition-all ${matchPercentStyle(detail.matchPercent).bar}`}
+          style={{ width: `${detail.matchPercent}%` }}
+        />
+      </div>
+      <div className="text-xs space-y-0.5">
+        <p className="text-gray-500">
+          <span className="font-medium">要求：</span>
+          {detail.requirement}
+        </p>
+        <p className={detail.passed ? "text-green-600" : "text-red-500"}>
+          <span className="font-medium">本视频：</span>
+          {detail.actual}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function Step3Verify({
-  viralPosts,
-  verifiedPost,
   verifyResult,
   stepStatus,
   stepMessage,
-  onSelectPost: _onSelectPost,
 }: Props) {
-  const isRunning = stepStatus === "running";
+  const { filterDetails } = verifyResult || {};
 
-  if (stepStatus === "pending" && !verifiedPost) {
+  if (stepStatus === "pending" && !verifyResult) {
     return (
-      <div className="card space-y-4">
-        <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-          <span>✅</span> Step 3: 爆款验证
-        </h3>
-        <p className="text-sm text-gray-400">请先在 Step 2 添加小红书链接，然后继续执行</p>
+      <div className="card space-y-2">
+        <h3 className="font-semibold text-gray-800">Step 3: 数据验证</h3>
+        <p className="text-sm text-gray-400">等待执行验证...</p>
       </div>
     );
   }
 
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-2">
       <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-        <span>✅</span> Step 3: 爆款验证
-        {stepStatus === "completed" && verifyResult?.isGenericViral && (
-          <span className="text-xs text-green-600 font-normal">✓ 通过验证</span>
-        )}
-        {stepStatus === "completed" && !verifyResult?.isGenericViral && (
-          <span className="text-xs text-yellow-600 font-normal">
-            ⚠ 非通用爆款，但仍可用于二创
-          </span>
+        Step 3: 数据验证
+        {stepStatus === "completed" && (
+          <span className="text-xs text-green-600 font-normal">完成</span>
         )}
         {stepStatus === "failed" && (
-          <span className="text-xs text-red-500 font-normal">⚠ 失败</span>
+          <span className="text-xs text-red-500 font-normal">失败</span>
         )}
       </h3>
 
-      {isRunning && (
+      {stepStatus === "running" && (
         <div className="flex items-center gap-2 text-brand-600 text-sm">
-          <span className="animate-spin">⏳</span>
+          <span className="animate-spin">&#8987;</span>
           <span>{stepMessage}</span>
         </div>
       )}
@@ -58,91 +85,26 @@ export default function Step3Verify({
         <p className="text-sm text-red-500">{stepMessage}</p>
       )}
 
-      {/* 验证结果 */}
-      {verifyResult && (
-        <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <span
-              className={`text-2xl ${
-                verifyResult.isGenericViral ? "" : "opacity-50"
-              }`}
-            >
-              {verifyResult.isGenericViral ? "🌟" : "📝"}
-            </span>
-            <div>
-              <p className="font-medium text-gray-800">
-                {verifyResult.isGenericViral ? "通用爆款" : "非通用爆款"}
-              </p>
-              <p className="text-sm text-gray-500">
-                通用性评分：{verifyResult.genericScore}/10
-              </p>
-            </div>
-          </div>
-
-          {verifyResult.strength && (
-            <div>
-              <p className="text-xs font-medium text-gray-500">💪 亮点</p>
-              <p className="text-sm text-gray-700">{verifyResult.strength}</p>
-            </div>
+      {filterDetails && (
+        <div className="grid grid-cols-2 gap-2">
+          {filterDetails.timeliness && (
+            <FilterRow label="时效性" icon="⏰" detail={filterDetails.timeliness} />
           )}
-          {verifyResult.weakness && (
-            <div>
-              <p className="text-xs font-medium text-gray-500">⚠️ 风险</p>
-              <p className="text-sm text-gray-700">{verifyResult.weakness}</p>
-            </div>
+          {filterDetails.duration && (
+            <FilterRow label="时长" icon="⏱" detail={filterDetails.duration} />
           )}
-          {verifyResult.rewriteSuggestion && (
-            <div>
-              <p className="text-xs font-medium text-gray-500">💡 二创建议</p>
-              <p className="text-sm text-gray-700">
-                {verifyResult.rewriteSuggestion}
-              </p>
-            </div>
+          {filterDetails.dataQuality && (
+            <FilterRow label="数据质量" icon="📊" detail={filterDetails.dataQuality} />
+          )}
+          {filterDetails.authorQuality && (
+            <FilterRow label="作者质量" icon="👤" detail={filterDetails.authorQuality} />
           )}
         </div>
       )}
 
-      {/* 选中的爆款帖子 */}
-      {verifiedPost && (
-        <div>
-          <p className="text-sm font-medium text-gray-600 mb-2">
-            选中用于二创的帖子：
-          </p>
-          <div className="bg-brand-50 border border-brand-200 rounded-lg p-3">
-            <p className="text-sm font-medium text-gray-700">
-              {verifiedPost.title || "无标题"}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              点赞 {formatNum(verifiedPost.likes)} · 收藏{" "}
-              {formatNum(verifiedPost.collects)} · 评论{" "}
-              {formatNum(verifiedPost.comments)}
-            </p>
-            {verifiedPost.scriptContent && (
-              <details className="mt-2">
-                <summary className="text-xs text-brand-600 cursor-pointer">
-                  查看原脚本
-                </summary>
-                <pre className="text-xs text-gray-600 mt-1 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                  {verifiedPost.scriptContent}
-                </pre>
-              </details>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 候选列表 */}
-      {viralPosts.length > 0 && !verifiedPost && (
-        <div className="space-y-2">
-          <p className="text-sm text-gray-500">已解析的帖子（共 {viralPosts.length} 条）</p>
-        </div>
+      {!filterDetails && stepStatus === "completed" && (
+        <p className="text-sm text-gray-400">暂无验证数据</p>
       )}
     </div>
   );
-}
-
-function formatNum(n?: number): string {
-  if (n == null) return "?";
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-  return String(n);
 }

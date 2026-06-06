@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import type { Style, ViralPost, ProgressEvent, VerifyResult, Script } from "../types";
-import { executePipeline, continuePipeline, streamRewrite, addViralUrls } from "../api";
+import type { ViralPost, XHSSearchResult, ProgressEvent, VerifyResult, Script } from "../types";
+import { executePipeline, continuePipeline, streamRewrite, addViralUrls, autoSearchXHS } from "../api";
 
 export type PipelineStepName = "keywords" | "search" | "verify" | "rewrite";
 
@@ -11,7 +11,6 @@ export interface StepState {
 }
 
 export function usePipeline() {
-  const [styles, setStyles] = useState<Style[]>([]);
   const [topic, setTopic] = useState("");
   const [styleId, setStyleId] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -30,6 +29,10 @@ export function usePipeline() {
   const [viralPosts, setViralPosts] = useState<ViralPost[]>([]);
   const [verifiedPost, setVerifiedPost] = useState<ViralPost | null>(null);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
+
+  // 自动搜索结果
+  const [autoSearchResults, setAutoSearchResults] = useState<XHSSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   // 改写结果
   const [rewrittenScript, setRewrittenScript] = useState<Script | null>(null);
@@ -62,6 +65,7 @@ export function usePipeline() {
       setKeywords([]);
       setRelatedKeywords([]);
       setViralPosts([]);
+      setAutoSearchResults([]);
       setVerifiedPost(null);
       setVerifyResult(null);
       setRewrittenScript(null);
@@ -116,6 +120,11 @@ export function usePipeline() {
                 }
                 return updated;
               });
+            } else if (event.type === "step_progress" && event.data?.action === "wait_for_urls") {
+              // Step2 完成后暂停，记录 sessionId 供后续步骤使用
+              if (event.data?.sessionId) {
+                setSessionId(event.data.sessionId);
+              }
             } else if (event.type === "pipeline_complete") {
               if (event.data?.sessionId) {
                 setSessionId(event.data.sessionId);
@@ -141,9 +150,8 @@ export function usePipeline() {
   // ========== Step2: 添加小红书链接 ==========
 
   const addUrls = useCallback(
-    async (urls: string[]) => {
+    async (urls: string[], results?: XHSSearchResult[]) => {
       if (!sessionId) {
-        // 从最近 event 获取，或提示先完成 Step1
         addLog("⚠️ 请等待 Pipeline 初始化完成");
         return;
       }
@@ -155,7 +163,9 @@ export function usePipeline() {
       }));
 
       try {
-        const result = await addViralUrls(sessionId, urls);
+        const result = results?.length
+          ? await addViralUrls(sessionId, urls, results)
+          : await addViralUrls(sessionId, urls);
         setViralPosts(result.posts);
         addLog(`✅ 成功解析 ${result.count} 条帖子`);
         setSteps((prev) => ({
@@ -171,6 +181,29 @@ export function usePipeline() {
       }
     },
     [sessionId, addLog]
+  );
+
+  // ========== Step2: 自动搜索小红书 ==========
+
+  const autoSearch = useCallback(
+    async (keywords: string[]) => {
+      setIsSearching(true);
+      setAutoSearchResults([]);
+      addLog(`🔍 正在基于 ${keywords.length} 个关键词搜索小红书...`);
+
+      try {
+        const result = await autoSearchXHS(keywords, 20, "opencli");
+        setAutoSearchResults(result.searchResults);
+        addLog(
+          `✅ 自动搜索完成：${result.stats.uniqueLinks} 条去重链接（共搜索 ${result.stats.keywordsSearched} 个关键词，找到 ${result.stats.totalLinksFound} 条）`
+        );
+      } catch (err: any) {
+        addLog(`❌ 自动搜索失败: ${err.message}`);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [addLog]
   );
 
   // ========== Step3+4: 继续执行（验证+改写） ==========
@@ -215,8 +248,8 @@ export function usePipeline() {
                 content: event.data.content || "",
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
-                source_url: verifiedPost?.xhsUrl,
-                original_script: verifiedPost?.scriptContent,
+                source_url: event.data.sourceUrl || "",
+                original_script: event.data.originalScript || "",
               });
             }
           } else if (event.type === "step_error") {
@@ -247,7 +280,7 @@ export function usePipeline() {
     );
 
     cancelRef.current = cancel;
-  }, [topic, styleId, sessionId, verifiedPost, addLog]);
+  }, [topic, styleId, sessionId, addLog]);
 
   // ========== Step4: 单独流式改写 ==========
 
@@ -269,8 +302,6 @@ export function usePipeline() {
         styleId || undefined,
         post.scriptContent,
         post.xhsUrl,
-        verifyResult?.strength,
-        verifyResult?.rewriteSuggestion,
         {
           onChunk(text) {
             setStreamContent((prev) => prev + text);
@@ -307,7 +338,7 @@ export function usePipeline() {
 
       cancelRef.current = cancel;
     },
-    [topic, styleId, verifyResult, addLog]
+    [topic, styleId, addLog]
   );
 
   // ========== 取消 ==========
@@ -340,6 +371,7 @@ export function usePipeline() {
     setVerifiedPost(null);
     setVerifyResult(null);
     setRewrittenScript(null);
+    setAutoSearchResults([]);
     setStreamContent("");
     setLogs([]);
   }, [cancelAll]);
@@ -359,12 +391,13 @@ export function usePipeline() {
     rewrittenScript,
     isRewriting,
     streamContent,
+    autoSearchResults,
+    isSearching,
     logs,
-    styles,
-    setStyles,
     // 操作
     startPipeline,
     addUrls,
+    autoSearch,
     continueAfterSearch,
     startRewrite,
     cancelAll,

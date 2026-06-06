@@ -11,14 +11,15 @@
 
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
-import { executePipeline, addViralPostToSession, addViralPostsToSession } from "../services/pipeline";
+import { executePipeline, addViralPostsToSession, addViralPostsFromSearchResults } from "../services/pipeline";
+import { searchXHSLinks } from "../services/xhs-search";
 import { chatStream } from "../services/ai";
 import { buildRewriterSystemPrompt, buildRewriterUserPrompt } from "../services/prompts/rewriter";
+import { setSSEHeaders, writeSSEEvent } from "./sse-helper";
 import {
   getSessionById,
-  getStepsBySession,
-  getViralPostsBySession,
   getStyleById,
+  createSession,
   updateSessionStatus,
   createScript,
 } from "../db";
@@ -35,35 +36,33 @@ router.post("/execute", async (req: Request, res: Response) => {
       return;
     }
 
-    // 设置 SSE 响应头
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
+    setSSEHeaders(res);
+
+    const sessionId = uuid();
 
     try {
-      const pipeline = executePipeline(topic, styleId);
+      // 在 try 块内创建 session，避免 executePipeline 异常时留下孤儿记录
+      createSession(sessionId, topic, styleId);
+      const pipeline = executePipeline(topic, styleId, sessionId);
 
       for await (const event of pipeline) {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        writeSSEEvent(res, event);
 
         // Step2 完成后暂停，等待用户添加链接
         if (event.type === "step_complete" && event.step === "search") {
-          res.write(
-            `data: ${JSON.stringify({
-              type: "step_progress",
-              step: "search",
-              stepOrder: 2,
-              message: "请在下方粘贴小红书爆款链接，然后点击继续",
-              data: { action: "wait_for_urls" },
-            })}\n\n`
-          );
+          writeSSEEvent(res, {
+            type: "step_progress",
+            step: "search",
+            stepOrder: 2,
+            message: "请在下方粘贴小红书爆款链接，然后点击继续",
+            data: { action: "wait_for_urls", sessionId },
+          });
+          updateSessionStatus(sessionId, "waiting_input", "search");
+          break; // 暂停流水线，等待用户添加链接后通过 /continue 继续
         }
       }
     } catch (err: any) {
-      res.write(
-        `data: ${JSON.stringify({ type: "step_error", message: err.message })}\n\n`
-      );
+      writeSSEEvent(res, { type: "step_error", message: err.message });
     }
 
     res.end();
@@ -75,20 +74,25 @@ router.post("/execute", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/pipeline/add-url — 添加小红书链接
+// POST /api/pipeline/add-url — 添加小红书链接（支持从搜索结果带元数据）
 router.post("/add-url", async (req: Request, res: Response) => {
   try {
-    const { sessionId, urls } = req.body;
+    const { sessionId, urls, results } = req.body;
 
-    if (!sessionId || !urls) {
-      res.status(400).json({ error: "缺少必填参数：sessionId、urls" });
+    if (!sessionId || (!urls && !results)) {
+      res.status(400).json({ error: "缺少必填参数：sessionId、urls 或 results" });
       return;
     }
 
-    const urlList = Array.isArray(urls) ? urls : [urls];
-    const posts = await addViralPostsToSession(sessionId, urlList);
-
-    res.json({ success: true, posts, count: posts.length });
+    // 支持两种格式：纯 URL 字符串数组，或带元数据的搜索结果数组
+    if (results && Array.isArray(results)) {
+      const posts = await addViralPostsFromSearchResults(sessionId, results);
+      res.json({ success: true, posts, count: posts.length });
+    } else {
+      const urlList = Array.isArray(urls) ? urls : [urls];
+      const posts = await addViralPostsToSession(sessionId, urlList);
+      res.json({ success: true, posts, count: posts.length });
+    }
   } catch (error: any) {
     console.error("添加链接失败:", error);
     res.status(500).json({ error: error.message || "添加链接失败" });
@@ -111,11 +115,7 @@ router.post("/continue", async (req: Request, res: Response) => {
       return;
     }
 
-    // 设置 SSE 响应头
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
+    setSSEHeaders(res);
 
     // 从已有会话继续执行（跳过已完成的步骤）
     const pipeline = executePipeline(topic, styleId, sessionId);
@@ -123,10 +123,10 @@ router.post("/continue", async (req: Request, res: Response) => {
     for await (const event of pipeline) {
       // 跳过已完成的步骤事件（已在 executePipeline 内处理）
       if (event.data?.skipped) {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        writeSSEEvent(res, event);
         continue;
       }
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      writeSSEEvent(res, event);
     }
 
     res.end();
@@ -141,7 +141,7 @@ router.post("/continue", async (req: Request, res: Response) => {
 // POST /api/pipeline/stream-rewrite — 流式二创改写
 router.post("/stream-rewrite", async (req: Request, res: Response) => {
   try {
-    const { topic, styleId, originalScript, sourceUrl, strength, rewriteSuggestion } = req.body;
+    const { topic, styleId, originalScript, sourceUrl } = req.body;
 
     if (!topic || !originalScript) {
       res.status(400).json({ error: "缺少必填参数：topic、originalScript" });
@@ -156,14 +156,10 @@ router.post("/stream-rewrite", async (req: Request, res: Response) => {
 
     const systemPrompt = buildRewriterSystemPrompt(styleName);
     const userPrompt = buildRewriterUserPrompt(
-      topic, originalScript, sourceUrl, strength, rewriteSuggestion
+      topic, originalScript, sourceUrl
     );
 
-    // 设置 SSE 响应头
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
+    setSSEHeaders(res);
 
     const scriptId = uuid();
     let fullContent = "";
@@ -173,9 +169,7 @@ router.post("/stream-rewrite", async (req: Request, res: Response) => {
 
       for await (const chunk of stream) {
         fullContent += chunk;
-        res.write(
-          `data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`
-        );
+        writeSSEEvent(res, { type: "chunk", content: chunk });
       }
 
       // 保存到数据库
@@ -184,21 +178,17 @@ router.post("/stream-rewrite", async (req: Request, res: Response) => {
         fullContent, undefined, sourceUrl, originalScript
       );
 
-      res.write(
-        `data: ${JSON.stringify({
-          type: "done",
-          scriptId,
-          topic,
-          styleName: styleName || "二创改写",
-          content: fullContent,
-          sourceUrl,
-          originalScript,
-        })}\n\n`
-      );
+      writeSSEEvent(res, {
+        type: "done",
+        scriptId,
+        topic,
+        styleName: styleName || "二创改写",
+        content: fullContent,
+        sourceUrl,
+        originalScript,
+      });
     } catch (err: any) {
-      res.write(
-        `data: ${JSON.stringify({ type: "error", message: err.message || "改写失败" })}\n\n`
-      );
+      writeSSEEvent(res, { type: "error", message: err.message || "改写失败" });
     }
 
     res.end();
@@ -207,6 +197,25 @@ router.post("/stream-rewrite", async (req: Request, res: Response) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "改写启动失败" });
     }
+  }
+});
+
+// POST /api/pipeline/auto-search — 自动搜索小红书链接
+router.post("/auto-search", async (req: Request, res: Response) => {
+  try {
+    const { keywords, limit, strategy } = req.body;
+
+    if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+      res.status(400).json({ error: "缺少必填参数：keywords（非空数组）" });
+      return;
+    }
+
+    const result = await searchXHSLinks(keywords, { limit: limit ?? 20, strategy });
+
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("自动搜索失败:", error);
+    res.status(500).json({ error: error.message || "自动搜索失败" });
   }
 });
 

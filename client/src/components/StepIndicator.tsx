@@ -4,45 +4,56 @@ interface Props {
   steps: Record<string, StepState>;
 }
 
-const STEP_LABELS: Record<string, { num: string; label: string }> = {
-  keywords: { num: "❶", label: "关键词" },
-  search: { num: "❷", label: "筛爆款" },
-  verify: { num: "❸", label: "验证" },
-  rewrite: { num: "❹", label: "二创" },
+const STEP_ORDER = ["keywords", "search", "verify", "rewrite"];
+const STEP_LABELS: Record<string, string> = {
+  keywords: "关键词",
+  search: "筛选",
+  verify: "验证",
+  rewrite: "改写",
 };
 
+function dotStyle(status: string | undefined): string {
+  switch (status) {
+    case "running":   return "bg-brand-500 border-brand-500 animate-pulse";
+    case "completed": return "bg-green-500 border-green-500";
+    case "failed":    return "bg-red-500 border-red-500";
+    default:          return "bg-white border-gray-300";
+  }
+}
+
 export default function StepIndicator({ steps }: Props) {
+  const entries = STEP_ORDER.map((key) => [key, steps[key]] as const);
+
   return (
-    <div className="flex items-center gap-2 mb-6">
-      {Object.entries(STEP_LABELS).map(([key, { num, label }], i) => {
-        const step = steps[key];
-        const isActive = step?.status === "running";
-        const isDone = step?.status === "completed";
-        const isFailed = step?.status === "failed";
+    <div className="flex items-center justify-center gap-0 mb-6">
+      {entries.map(([key, step], i) => {
+        const status = step?.status;
+        const isDone = status === "completed";
+        const isActive = status === "running";
 
         return (
-          <div key={key} className="flex items-center gap-2">
-            {/* 步骤圆点 */}
-            <div
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-                isActive
-                  ? "bg-brand-100 text-brand-700 shadow-sm"
-                  : isDone
-                  ? "bg-green-50 text-green-600"
-                  : isFailed
-                  ? "bg-red-50 text-red-500"
-                  : "bg-gray-100 text-gray-400"
-              }`}
-            >
-              <span className={isActive ? "animate-pulse" : ""}>{num}</span>
-              <span className="hidden sm:inline">{label}</span>
-              {isDone && <span>✓</span>}
-              {isFailed && <span>⚠</span>}
+          <div key={key} className="flex items-center">
+            {/* 圆点 + 标签 */}
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`w-3.5 h-3.5 rounded-full border-2 ${dotStyle(status)} ${
+                  isActive ? "ring-4 ring-brand-100" : ""
+                }`}
+              />
+              <span
+                className={`text-xs whitespace-nowrap ${
+                  isDone ? "text-green-600 font-medium" :
+                  isActive ? "text-brand-600 font-medium" :
+                  "text-gray-400"
+                }`}
+              >
+                {STEP_LABELS[key]}
+              </span>
             </div>
             {/* 连接线 */}
-            {i < Object.keys(STEP_LABELS).length - 1 && (
-              <span
-                className={`hidden sm:block w-6 h-0.5 ${
+            {i < entries.length - 1 && (
+              <div
+                className={`w-8 sm:w-16 h-0.5 mx-1 ${
                   isDone ? "bg-green-300" : "bg-gray-200"
                 }`}
               />

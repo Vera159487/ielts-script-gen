@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
 import { generateScriptStream } from "../services/ai";
 import { getStyleById, createScript } from "../db";
+import { setSSEHeaders, writeSSEEvent } from "./sse-helper";
 
 const router = Router();
 
@@ -22,10 +23,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     // 设置 SSE 响应头
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
+    setSSEHeaders(res);
 
     const scriptId = uuid();
     let fullContent = "";
@@ -40,27 +38,23 @@ router.post("/", async (req: Request, res: Response) => {
       for await (const chunk of stream) {
         fullContent += chunk;
         // SSE 格式：data: <json>\n\n
-        res.write(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`);
+        writeSSEEvent(res, { type: "chunk", content: chunk });
       }
 
       // 保存到数据库
       createScript(scriptId, topic, styleId, style.name, fullContent);
 
       // 发送完成事件
-      res.write(
-        `data: ${JSON.stringify({
-          type: "done",
-          scriptId,
-          topic,
-          styleName: style.name,
-          content: fullContent,
-        })}\n\n`
-      );
+      writeSSEEvent(res, {
+        type: "done",
+        scriptId,
+        topic,
+        styleName: style.name,
+        content: fullContent,
+      });
     } catch (aiError: any) {
       console.error("AI 生成失败:", aiError);
-      res.write(
-        `data: ${JSON.stringify({ type: "error", message: aiError.message || "AI 生成失败" })}\n\n`
-      );
+      writeSSEEvent(res, { type: "error", message: aiError.message || "AI 生成失败" });
     }
 
     res.end();

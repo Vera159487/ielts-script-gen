@@ -15,3 +15,5 @@ export const DEEPSEEK_BASE_URL =
 export const DEEPSEEK_MODEL =
   process.env.DEEPSEEK_MODEL || "deepseek-chat";
 export const PORT = parseInt(process.env.PORT || "3001", 10);
+export const XHS_COOKIE = process.env.XHS_COOKIE || "";
+export const XHS_MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";

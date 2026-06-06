@@ -1,4 +1,4 @@
-import type { Style, Script, Session, SessionDetail, ViralPost, ProgressEvent, RewriteStreamCallbacks } from "./types";
+import type { Style, Script, Session, SessionDetail, ViralPost, XHSSearchResult, ProgressEvent, RewriteStreamCallbacks } from "./types";
 
 const BASE = "/api";
 
@@ -46,6 +46,44 @@ export async function deleteScriptApi(id: string): Promise<void> {
 // ========== Pipeline ==========
 
 /**
+ * 共享 SSE 流读取器 — 正确处理跨 chunk 边界的行缓冲
+ * 使用 parts.pop() 保留末尾不完整行，避免跨块事件丢失
+ */
+async function readSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onData: (data: any) => void
+): Promise<void> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      // 流结束前处理缓冲区中剩余的最后一行（可能是没有尾随 \n 的最终事件）
+      if (buffer.startsWith("data: ")) {
+        try { onData(JSON.parse(buffer.slice(6))); } catch { /* 丢弃 */ }
+      }
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n");
+    // 最后一段可能是未完成的行，留在 buffer 等待下一个 chunk
+    buffer = parts.pop() || "";
+
+    for (const line of parts) {
+      if (line.startsWith("data: ")) {
+        try {
+          onData(JSON.parse(line.slice(6)));
+        } catch {
+          // 跳过畸形 JSON 行
+        }
+      }
+    }
+  }
+}
+
+/**
  * 启动完整 Pipeline（SSE 流式）
  * 返回 abort 函数
  */
@@ -74,33 +112,13 @@ export function executePipeline(
       const reader = res.body?.getReader();
       if (!reader) throw new Error("无法读取响应流");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "pipeline_complete") {
-                callbacks.onComplete(data.data);
-              } else {
-                callbacks.onEvent(data as ProgressEvent);
-              }
-            } catch {
-              // 不完整的 JSON，放回 buffer
-              buffer += line + "\n";
-            }
-          }
+      await readSSEStream(reader, (data) => {
+        if (data.type === "pipeline_complete") {
+          callbacks.onComplete(data.data);
+        } else {
+          callbacks.onEvent(data as ProgressEvent);
         }
-      }
+      });
     } catch (err: any) {
       if (err.name !== "AbortError") {
         callbacks.onError(err.message || "Pipeline 执行失败");
@@ -140,32 +158,13 @@ export function continuePipeline(
       const reader = res.body?.getReader();
       if (!reader) throw new Error("无法读取响应流");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "pipeline_complete") {
-                callbacks.onComplete(data.data);
-              } else {
-                callbacks.onEvent(data as ProgressEvent);
-              }
-            } catch {
-              buffer += line + "\n";
-            }
-          }
+      await readSSEStream(reader, (data) => {
+        if (data.type === "pipeline_complete") {
+          callbacks.onComplete(data.data);
+        } else {
+          callbacks.onEvent(data as ProgressEvent);
         }
-      }
+      });
     } catch (err: any) {
       if (err.name !== "AbortError") {
         callbacks.onError(err.message || "继续执行失败");
@@ -184,8 +183,6 @@ export function streamRewrite(
   styleId: string | undefined,
   originalScript: string,
   sourceUrl: string | undefined,
-  strength: string | undefined,
-  rewriteSuggestion: string | undefined,
   callbacks: RewriteStreamCallbacks
 ): () => void {
   const controller = new AbortController();
@@ -195,7 +192,7 @@ export function streamRewrite(
       const res = await fetch(`${BASE}/pipeline/stream-rewrite`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, styleId, originalScript, sourceUrl, strength, rewriteSuggestion }),
+        body: JSON.stringify({ topic, styleId, originalScript, sourceUrl }),
         signal: controller.signal,
       });
 
@@ -204,39 +201,20 @@ export function streamRewrite(
       const reader = res.body?.getReader();
       if (!reader) throw new Error("无法读取响应流");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "chunk") {
-                callbacks.onChunk(data.content);
-              } else if (data.type === "done") {
-                callbacks.onDone(
-                  data.scriptId,
-                  data.content,
-                  data.sourceUrl,
-                  data.originalScript
-                );
-              } else if (data.type === "error") {
-                callbacks.onError(data.message);
-              }
-            } catch {
-              buffer += line + "\n";
-            }
-          }
+      await readSSEStream(reader, (data) => {
+        if (data.type === "chunk") {
+          callbacks.onChunk(data.content);
+        } else if (data.type === "done") {
+          callbacks.onDone(
+            data.scriptId,
+            data.content,
+            data.sourceUrl,
+            data.originalScript
+          );
+        } else if (data.type === "error") {
+          callbacks.onError(data.message);
         }
-      }
+      });
     } catch (err: any) {
       if (err.name !== "AbortError") {
         callbacks.onError(err.message || "改写失败");
@@ -248,18 +226,42 @@ export function streamRewrite(
 }
 
 /**
- * 添加小红书链接到会话
+ * 添加小红书链接到会话（支持传入搜索结果元数据以获取更完整的帖子信息）
  */
 export async function addViralUrls(
   sessionId: string,
-  urls: string[]
+  urls: string[],
+  searchResults?: Pick<XHSSearchResult, "url" | "title" | "snippet" | "keyword" | "xsecToken" | "postType" | "likes">[]
 ): Promise<{ posts: ViralPost[]; count: number }> {
+  const body: any = { sessionId, urls };
+  if (searchResults && searchResults.length > 0) {
+    body.results = searchResults;
+  }
   const res = await fetch(`${BASE}/pipeline/add-url`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId, urls }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("添加链接失败");
+  return res.json();
+}
+
+export async function autoSearchXHS(
+  keywords: string[],
+  limit?: number,
+  strategy?: "bing" | "opencli"
+): Promise<{
+  success: boolean;
+  urls: string[];
+  searchResults: XHSSearchResult[];
+  stats: { keywordsSearched: number; totalLinksFound: number; uniqueLinks: number };
+}> {
+  const res = await fetch(`${BASE}/pipeline/auto-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keywords, limit, strategy }),
+  });
+  if (!res.ok) throw new Error("自动搜索失败");
   return res.json();
 }
 
@@ -313,35 +315,15 @@ export function generateScriptStream(
       const reader = res.body?.getReader();
       if (!reader) throw new Error("无法读取响应流");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n");
-        buffer = "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "chunk") {
-                callbacks.onChunk(data.content);
-              } else if (data.type === "done") {
-                callbacks.onDone(data.scriptId, data.content);
-              } else if (data.type === "error") {
-                callbacks.onError(data.message);
-              }
-            } catch {
-              buffer += line + "\n";
-            }
-          }
+      await readSSEStream(reader, (data) => {
+        if (data.type === "chunk") {
+          callbacks.onChunk(data.content);
+        } else if (data.type === "done") {
+          callbacks.onDone(data.scriptId, data.content);
+        } else if (data.type === "error") {
+          callbacks.onError(data.message);
         }
-      }
+      });
     } catch (err: any) {
       if (err.name !== "AbortError") {
         callbacks.onError(err.message || "生成失败");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { usePipeline } from "../hooks/usePipeline";
 import type { Style } from "../types";
 import { fetchStyles } from "../api";
@@ -24,32 +24,20 @@ export default function PipelineWizard() {
       .catch(() => {});
   }, []);
 
-  const handleStart = () => {
+  const handleStart = useCallback(() => {
     if (!topicInput.trim() || !pipeline.styleId) return;
     pipeline.startPipeline(topicInput.trim(), pipeline.styleId);
-  };
-
-  const handleAddUrls = (urls: string[]) => {
-    pipeline.addUrls(urls);
-  };
-
-  const handleContinue = () => {
-    pipeline.continueAfterSearch();
-  };
-
-  const handleRewrite = (post: import("../types").ViralPost) => {
-    pipeline.startRewrite(post);
-  };
+  }, [topicInput, pipeline]);
 
   const hasStarted = pipeline.sessionId != null;
+  const isKeywordsRunning = pipeline.steps.keywords.status === "running";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-brand-50/30">
+    <div className="min-h-screen bg-gray-50">
       {/* 顶部导航 */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-30">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl">🎬</span>
             <div>
               <h1 className="text-lg font-bold text-gray-900">
                 破7学院 · 全链路脚本工作台
@@ -62,26 +50,26 @@ export default function PipelineWizard() {
 
           <div className="flex items-center gap-3">
             {/* 视图切换 */}
-            <div className="flex rounded-lg bg-gray-100 p-0.5">
+            <div className="flex gap-1 text-sm">
               <button
                 onClick={() => setView("new")}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "new"
-                    ? "bg-white shadow-sm text-brand-700"
+                    ? "text-brand-700 font-medium border-b-2 border-brand-500"
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                ✨ 新建
+                新建
               </button>
               <button
                 onClick={() => setView("history")}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded transition-colors ${
                   view === "history"
-                    ? "bg-white shadow-sm text-brand-700"
+                    ? "text-brand-700 font-medium border-b-2 border-brand-500"
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                📂 历史
+                历史
               </button>
             </div>
 
@@ -109,10 +97,10 @@ export default function PipelineWizard() {
       </header>
 
       {/* 主体 */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-4">
         {view === "history" ? (
           <div className="card">
-            <h2 className="font-semibold text-gray-800 mb-4">📂 历史会话</h2>
+            <h2 className="font-semibold text-gray-800 mb-4">历史会话</h2>
             <p className="text-sm text-gray-400">
               历史记录功能已集成到侧边栏，请点击右上角按钮查看。
             </p>
@@ -154,34 +142,36 @@ export default function PipelineWizard() {
             </aside>
 
             {/* 右侧主区域 */}
-            <div className="flex-1 min-w-0 space-y-6">
+            <div className="flex-1 min-w-0 space-y-3">
               {/* 步骤指示器 */}
               <StepIndicator steps={pipeline.steps} />
 
               {/* 话题输入 + 风格选择（始终显示） */}
-              <div className="card space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    📝 输入雅思话题
-                  </label>
-                  <textarea
-                    className="input-field min-h-[80px] resize-y"
-                    placeholder='例如："雅思口语Part 2 描述一个喜欢的地方"、"雅思阅读判断题总是错怎么办"'
-                    value={topicInput}
-                    onChange={(e) => setTopicInput(e.target.value)}
-                    disabled={pipeline.steps.keywords.status === "running"}
-                  />
-                </div>
+              <div className="card space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      输入雅思话题
+                    </label>
+                    <textarea
+                      className="input-field min-h-[60px] resize-y"
+                      placeholder="例如：雅思口语Part2 描述一个喜欢的地方、雅思阅读判断题总是错怎么办"
+                      value={topicInput}
+                      onChange={(e) => setTopicInput(e.target.value)}
+                      disabled={isKeywordsRunning}
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    🎨 选择脚本风格（可选）
-                  </label>
-                  <StyleSelector
-                    styles={styles}
-                    selectedId={pipeline.styleId}
-                    onSelect={pipeline.setStyleId}
-                  />
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      选择脚本风格（可选）
+                    </label>
+                    <StyleSelector
+                      styles={styles}
+                      selectedId={pipeline.styleId}
+                      onSelect={pipeline.setStyleId}
+                    />
+                  </div>
                 </div>
 
                 {!hasStarted && (
@@ -190,21 +180,20 @@ export default function PipelineWizard() {
                     disabled={
                       !topicInput.trim() ||
                       !pipeline.styleId ||
-                      pipeline.steps.keywords.status === "running"
+                      isKeywordsRunning
                     }
-                    className="btn-primary flex items-center gap-2"
+                    className="btn-primary"
                   >
-                    <span>🚀</span>
                     启动全链路生成
                   </button>
                 )}
 
-                {hasStarted && pipeline.steps.keywords.status === "running" && (
+                {hasStarted && isKeywordsRunning && (
                   <button
                     onClick={pipeline.cancelAll}
                     className="btn-secondary !border-red-200 !text-red-600"
                   >
-                    ⏹ 取消
+                    取消
                   </button>
                 )}
 
@@ -213,21 +202,17 @@ export default function PipelineWizard() {
                     onClick={pipeline.reset}
                     className="btn-secondary text-sm"
                   >
-                    🔄 重新开始
+                    重新开始
                   </button>
                 )}
               </div>
 
               {/* Step 1: 关键词 */}
               <Step1Keywords
-                topic={pipeline.topic}
                 keywords={pipeline.keywords}
                 relatedKeywords={pipeline.relatedKeywords}
                 stepStatus={pipeline.steps.keywords.status}
                 stepMessage={pipeline.steps.keywords.message}
-                onGenerate={pipeline.startPipeline}
-                styleId={pipeline.styleId}
-                isStarted={hasStarted}
               />
 
               {/* Step 2: 搜索 */}
@@ -236,19 +221,19 @@ export default function PipelineWizard() {
                 viralPosts={pipeline.viralPosts}
                 stepStatus={pipeline.steps.search.status}
                 stepMessage={pipeline.steps.search.message}
-                onAddUrls={handleAddUrls}
-                onContinue={handleContinue}
+                onAddUrls={pipeline.addUrls}
+                onContinue={pipeline.continueAfterSearch}
+                onAutoSearch={pipeline.autoSearch}
+                autoSearchResults={pipeline.autoSearchResults}
+                isSearching={pipeline.isSearching}
                 isLoading={pipeline.steps.search.status === "running"}
               />
 
               {/* Step 3: 验证 */}
               <Step3Verify
-                viralPosts={pipeline.viralPosts}
-                verifiedPost={pipeline.verifiedPost}
                 verifyResult={pipeline.verifyResult}
                 stepStatus={pipeline.steps.verify.status}
                 stepMessage={pipeline.steps.verify.message}
-                onSelectPost={() => {}}
               />
 
               {/* Step 4: 改写 */}
@@ -259,7 +244,7 @@ export default function PipelineWizard() {
                 streamContent={pipeline.streamContent}
                 stepStatus={pipeline.steps.rewrite.status}
                 stepMessage={pipeline.steps.rewrite.message}
-                onRewrite={handleRewrite}
+                onRewrite={pipeline.startRewrite}
               />
 
               {/* 进度日志 */}
@@ -270,7 +255,7 @@ export default function PipelineWizard() {
       </main>
 
       {/* 页脚 */}
-      <footer className="text-center py-6 text-xs text-gray-400">
+      <footer className="text-center py-3 text-xs text-gray-400">
         破7学院 © 2026 — SOP 全链路脚本自动化工作台
       </footer>
     </div>

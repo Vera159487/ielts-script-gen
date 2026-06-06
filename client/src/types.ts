@@ -17,22 +17,9 @@ export interface Script {
   content: string;
   created_at: string;
   updated_at: string;
-  /** 新增：关联会话 */
   session_id?: string;
-  /** 新增：原爆款链接 */
   source_url?: string;
-  /** 新增：原爆款脚本 */
   original_script?: string;
-}
-
-/** SSE 数据块 */
-export interface SSEChunk {
-  type: "chunk" | "done" | "error";
-  content?: string;
-  scriptId?: string;
-  topic?: string;
-  styleName?: string;
-  message?: string;
 }
 
 // ========== Pipeline 新类型 ==========
@@ -69,6 +56,9 @@ export interface PipelineStep {
   created_at: string;
 }
 
+/** 小红书帖子类型 */
+export type XHSPostType = "video" | "note";
+
 /** 小红书帖子数据 */
 export interface ViralPost {
   id?: string;
@@ -84,17 +74,26 @@ export interface ViralPost {
   scriptContent?: string;
   isVerified?: boolean;
   verificationNotes?: string;
+  postType?: XHSPostType;
 }
 
-/** 验证结果 */
+/** 四维过滤详情 */
+export interface FilterDetail {
+  passed: boolean;
+  matchPercent: number;
+  requirement: string;
+  actual: string;
+}
+
+/** 验证结果（纯数学计算，Step 3 仅展示四维数据） */
 export interface VerifyResult {
   passesFilter: boolean;
-  isGenericViral: boolean;
-  genericScore: number;
-  strength?: string;
-  weakness?: string;
-  rewriteSuggestion?: string;
-  filterDetails?: any;
+  filterDetails?: {
+    timeliness?: FilterDetail;
+    duration?: FilterDetail;
+    dataQuality?: FilterDetail;
+    authorQuality?: FilterDetail;
+  };
 }
 
 /** Pipeline 进度事件（来自 SSE） */
@@ -111,6 +110,20 @@ export interface SessionDetail {
   session: Session;
   steps: PipelineStep[];
   posts: ViralPost[];
+}
+
+/** 自动搜索小红书结果
+ * ⚠️ 与 server/src/services/xhs-search.ts 中的 XHSSearchResult 保持同步 */
+export interface XHSSearchResult {
+  url: string;
+  title: string;
+  snippet: string;
+  keyword: string;
+  xsecToken?: string;
+  postType?: XHSPostType;
+  likes?: number;
+  /** 四维预筛选匹配度均值（0-100），用于前端排序和阈值标注 */
+  matchPercent?: number;
 }
 
 /** 流式改写回调 */

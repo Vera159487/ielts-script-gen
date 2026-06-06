@@ -135,6 +135,7 @@ export async function initDB(): Promise<void> {
       duration_seconds INTEGER,
       published_at TEXT,
       script_content TEXT,
+      post_type TEXT DEFAULT 'note',
       metadata TEXT,
       is_verified INTEGER DEFAULT 0,
       verification_notes TEXT,
@@ -142,6 +143,9 @@ export async function initDB(): Promise<void> {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     )
   `);
+
+  // 为已有数据库添加 post_type 列（兼容升级）
+  try { db.run("ALTER TABLE viral_posts ADD COLUMN post_type TEXT DEFAULT 'note'"); } catch (_) { /* 列已存在 */ }
 
   // 预置风格
   const existing = db.exec("SELECT COUNT(*) as count FROM styles");
@@ -239,6 +243,32 @@ function saveDB(): void {
   writeFileSync(DB_PATH, buffer);
 }
 
+// ========== 通用查询辅助 ==========
+
+/** 按 ID 查询单行 —— getStyleById / getScriptById / getSessionById / getStepById 的统一实现 */
+function getRowById(table: string, id: string) {
+  const stmt = db.prepare(`SELECT * FROM ${table} WHERE id = ?`);
+  stmt.bind([id]);
+  let result: any = null;
+  if (stmt.step()) {
+    result = stmt.getAsObject();
+  }
+  stmt.free();
+  return result;
+}
+
+/** 统计表行数 —— getScriptsCount / getSessionsCount 的统一实现 */
+function getTableCount(table: string): number {
+  const stmt = db.prepare(`SELECT COUNT(*) as count FROM ${table}`);
+  stmt.bind([]);
+  let count = 0;
+  if (stmt.step()) {
+    count = stmt.getAsObject().count as number;
+  }
+  stmt.free();
+  return count;
+}
+
 // ========== 样式查询（保留） ==========
 
 export function getStyles() {
@@ -252,14 +282,7 @@ export function getStyles() {
 }
 
 export function getStyleById(id: string) {
-  const stmt = db.prepare("SELECT * FROM styles WHERE id = ?");
-  stmt.bind([id]);
-  let result: any = null;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
-  }
-  stmt.free();
-  return result;
+  return getRowById("styles", id);
 }
 
 // ========== 脚本 CRUD（保留 + 扩展） ==========
@@ -304,14 +327,7 @@ export function getScripts(limit = 50, offset = 0) {
 }
 
 export function getScriptById(id: string) {
-  const stmt = db.prepare("SELECT * FROM scripts WHERE id = ?");
-  stmt.bind([id]);
-  let result: any = null;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
-  }
-  stmt.free();
-  return result;
+  return getRowById("scripts", id);
 }
 
 export function deleteScript(id: string) {
@@ -320,14 +336,7 @@ export function deleteScript(id: string) {
 }
 
 export function getScriptsCount(): number {
-  const stmt = db.prepare("SELECT COUNT(*) as count FROM scripts");
-  stmt.bind([]);
-  let count = 0;
-  if (stmt.step()) {
-    count = stmt.getAsObject().count as number;
-  }
-  stmt.free();
-  return count;
+  return getTableCount("scripts");
 }
 
 // ========== 会话管理 (Sessions) ==========
@@ -357,14 +366,7 @@ export function updateSessionStatus(id: string, status: string, currentStep?: st
 }
 
 export function getSessionById(id: string) {
-  const stmt = db.prepare("SELECT * FROM sessions WHERE id = ?");
-  stmt.bind([id]);
-  let result: any = null;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
-  }
-  stmt.free();
-  return result;
+  return getRowById("sessions", id);
 }
 
 export function getSessions(limit = 50, offset = 0) {
@@ -381,14 +383,7 @@ export function getSessions(limit = 50, offset = 0) {
 }
 
 export function getSessionsCount(): number {
-  const stmt = db.prepare("SELECT COUNT(*) as count FROM sessions");
-  stmt.bind([]);
-  let count = 0;
-  if (stmt.step()) {
-    count = stmt.getAsObject().count as number;
-  }
-  stmt.free();
-  return count;
+  return getTableCount("sessions");
 }
 
 export function deleteSession(id: string) {
@@ -449,14 +444,7 @@ export function getStepsBySession(sessionId: string) {
 }
 
 export function getStepById(id: string) {
-  const stmt = db.prepare("SELECT * FROM pipeline_steps WHERE id = ?");
-  stmt.bind([id]);
-  let result: any = null;
-  if (stmt.step()) {
-    result = stmt.getAsObject();
-  }
-  stmt.free();
-  return result;
+  return getRowById("pipeline_steps", id);
 }
 
 // ========== 关键词缓存 (Keyword Banks) ==========
@@ -495,18 +483,18 @@ export function createViralPost(post: {
   authorName?: string; authorFollowers?: number;
   likes?: number; collects?: number; comments?: number;
   durationSeconds?: number; publishedAt?: string;
-  scriptContent?: string; metadata?: string;
+  scriptContent?: string; postType?: string; metadata?: string;
 }) {
   db.run(
     `INSERT INTO viral_posts (id, session_id, xhs_url, title, author_name, author_followers,
-     likes, collects, comments, duration_seconds, published_at, script_content, metadata)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     likes, collects, comments, duration_seconds, published_at, script_content, post_type, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       post.id, post.sessionId, post.xhsUrl, post.title || null,
-      post.authorName || null, post.authorFollowers || null,
-      post.likes || null, post.collects || null, post.comments || null,
+      post.authorName || null, post.authorFollowers ?? null,
+      post.likes ?? null, post.collects ?? null, post.comments ?? null,
       post.durationSeconds || null, post.publishedAt || null,
-      post.scriptContent || null, post.metadata || null,
+      post.scriptContent || null, post.postType || "note", post.metadata || null,
     ]
   );
   saveDB();
@@ -522,6 +510,53 @@ export function updateViralPostVerification(
   saveDB();
 }
 
+/**
+ * 更新帖子补充数据（merge 策略：仅非空值覆盖）
+ * 用于搜索导入后 scraper 回填 collects/comments/followers/time 等字段
+ */
+export function updateViralPostData(id: string, data: {
+  authorName?: string;
+  authorFollowers?: number;
+  likes?: number;
+  collects?: number;
+  comments?: number;
+  durationSeconds?: number;
+  publishedAt?: string;
+  scriptContent?: string;
+}): void {
+  const fieldMap: Record<string, string> = {
+    authorName: "author_name",
+    authorFollowers: "author_followers",
+    likes: "likes",
+    collects: "collects",
+    comments: "comments",
+    durationSeconds: "duration_seconds",
+    publishedAt: "published_at",
+    scriptContent: "script_content",
+  };
+
+  const sets: string[] = [];
+  const vals: any[] = [];
+
+  for (const [k, v] of Object.entries(data)) {
+    // merge 策略：仅非空、非 0 的值才覆盖（保留已有好数据）
+    if (v == null) continue;
+    if (typeof v === "number" && v === 0) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    const col = fieldMap[k];
+    if (col) {
+      sets.push(`${col} = ?`);
+      vals.push(v);
+    }
+  }
+
+  if (sets.length > 0) {
+    vals.push(id);
+    db.run(`UPDATE viral_posts SET ${sets.join(", ")} WHERE id = ?`, vals);
+    saveDB();
+  }
+}
+
 export function getViralPostsBySession(sessionId: string) {
   const results: any[] = [];
   const stmt = db.prepare(
@@ -535,15 +570,3 @@ export function getViralPostsBySession(sessionId: string) {
   return results;
 }
 
-export function getVerifiedViralPosts(sessionId: string) {
-  const results: any[] = [];
-  const stmt = db.prepare(
-    "SELECT * FROM viral_posts WHERE session_id = ? AND is_verified = 1 ORDER BY likes DESC"
-  );
-  stmt.bind([sessionId]);
-  while (stmt.step()) {
-    results.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return results;
-}
