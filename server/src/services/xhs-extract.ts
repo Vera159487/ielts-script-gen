@@ -75,11 +75,11 @@ export async function parsePostWithOpenCLI(
 
     if (!markdown || markdown.length < 100) return null;
 
-    // 4. 从 markdown 中解析帖子描述
-    // 帖子正文通常在标题之后、评论区之前
-    const desc = extractPostDesc(markdown, extractData?.title || "");
+    // 4. 从 markdown 中解析帖子描述（作回退）
+    const mdDesc = extractPostDesc(markdown, extractData?.title || "");
 
-    if (!desc) return null;
+    // 优先用 eval DOM 直接提取的正文，markdown 作回退
+    let desc = "";
 
     // 4b. 从 markdown 中提取粉丝数、视频时长、发布时间
     //     （这些字段在 DOM 中可能不可见，但 extract 命令的 markdown 包含全部页面文本）
@@ -514,7 +514,39 @@ export async function parsePostWithOpenCLI(
   if (!duration) console.log('[eval] 视频时长: 未提取到');
   else console.log('[eval] 视频时长:', duration);
 
-  return { authorName, followers, timeStr, duration, likeStr, collectStr, commentStr, fallbackNums, fallbackAnnotated, userIdFromHref };
+  // ===== 帖子正文 —— DOM 直接提取（远比 markdown 过滤可靠） =====
+  let postContent = '';
+  const contentSelectors = [
+    '#detail-desc', '[class*="note-text"]', '[class*="note-content"]',
+    '[class*="desc"]:not([class*="user"])', '.note-scroller .desc',
+    '[class*="note"] [class*="desc"]', '[class*="content"] [class*="desc"]',
+    '[class*="note-scroller"] [class*="text"]', '.note-desc',
+  ];
+  for (const sel of contentSelectors) {
+    try {
+      const el = document.querySelector(sel);
+      if (el) {
+        const text = (el.textContent || '').trim();
+        if (text.length >= 20) {
+          postContent = text;
+          console.log('[eval] 帖子正文: 选择器"' + sel + '"命中, 长度=' + postContent.length);
+          break;
+        }
+      }
+    } catch(e) { /* skip invalid selector */ }
+  }
+  // 回退：取 #detail-desc 父容器中所有文本
+  if (!postContent) {
+    const detailDesc = document.querySelector('#detail-desc');
+    if (detailDesc) {
+      postContent = (detailDesc.textContent || '').trim();
+      if (postContent.length < 20) postContent = '';
+    }
+  }
+  if (!postContent) console.log('[eval] 帖子正文: 所有选择器未命中');
+  else console.log('[eval] 帖子正文: 最终长度=' + postContent.length);
+
+  return { authorName, followers, timeStr, duration, likeStr, collectStr, commentStr, fallbackNums, fallbackAnnotated, userIdFromHref, postContent };
 })()`,
       ], 10_000);
       const sd = JSON.parse(statsJson);
@@ -592,8 +624,20 @@ export async function parsePostWithOpenCLI(
         stats.comments = parsedNums[2] || 0;
         console.log(`[xhs-search] eval 兜底互动(nums按顺序): likes=${stats.likes}, collects=${stats.collects}, comments=${stats.comments} (原始=${JSON.stringify(sd.fallbackNums)})`);
       } else {
-        console.log(`[xhs-search] eval 互动数据: likes=${stats.likes}, collects=${stats.collects}, comments=${stats.comments} (语义+annotated)`);
+        // 优先使用 eval DOM 提取的帖子正文（远优于 markdown 过滤）
+      if (sd.postContent && sd.postContent.length >= 20) {
+        desc = sd.postContent;
+        console.log(`[xhs-search] 使用 eval DOM 正文: 长度=${desc.length}`);
+      } else if (mdDesc) {
+        desc = mdDesc;
+        console.log(`[xhs-search] eval 无正文，回退 markdown: 长度=${desc.length}`);
       }
+
+      if (!desc) {
+        console.log(`[xhs-search] eval 和 markdown 均未提取到正文，跳过`);
+        return null;
+      }
+      }  // end else (语义提取成功)
     } catch (err: any) {
       console.error(`[xhs-search] OpenCLI eval 提取 stats 失败:`, err.message || err);
     }
