@@ -630,80 +630,104 @@ function extractPostDesc(markdown: string, pageTitle: string): string {
   const lines = markdown.split("\n");
   const contentLines: string[] = [];
   let inContent = false;
+  const pageTitleClean = pageTitle?.replace(" - 小红书", "").trim() || "";
+
+  console.log(`[xhs-search] extractPostDesc: 总行数=${lines.length}, 标题="${pageTitleClean}"`);
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    if (trimmed === pageTitle?.replace(" - 小红书", "").trim()) {
+    // 检测标题行（进入内容区域）
+    if (!inContent && trimmed === pageTitleClean) {
       inContent = true;
+      console.log(`[xhs-search] extractPostDesc: 找到标题行，进入内容区域`);
       continue;
     }
 
+    // 页脚/版权区域 —— 仅在不收集内容时跳过，不 break
     if (
-      trimmed.startsWith("[!") ||
       trimmed.startsWith("© ") ||
       trimmed.startsWith("行吟信息") ||
       trimmed.startsWith("地址：") ||
       trimmed.startsWith("电话：") ||
       trimmed.startsWith("沪ICP备") ||
       trimmed.startsWith("关于我们") ||
-      trimmed.includes("网络文化经营许可") ||
-      trimmed.startsWith("温馨提示") ||
-      trimmed.startsWith("活动")
+      trimmed.includes("网络文化经营许可")
     ) {
-      if (inContent) break;
-      continue;
+      continue;  // 总是跳过，不停止收集
     }
 
+    // 导航栏/UI chrome —— 跳过但不停止收集（之前会 break 导致截断！）
     if (
       trimmed === "首页" ||
       trimmed === "消息" ||
       trimmed === "我" ||
       trimmed === "发布" ||
       trimmed === "直播" ||
-      trimmed === "点点" ||
-      trimmed.match(/^\d{2}-\d{2}/) ||
-      trimmed.match(/^\d+$/) ||
+      trimmed === "点点"
+    ) {
+      continue;
+    }
+
+    // 评论区域标记 —— 这些行出现时停止收集
+    if (
+      trimmed.match(/^\d{2}-\d{2}/) ||   // 评论日期 "03-27"
       trimmed === "回复" ||
-      trimmed === "赞"
+      trimmed.match(/^共\s*\d+\s*条评论/) ||
+      trimmed.match(/^\d+\s*条评论/) ||
+      trimmed.match(/^\d+\s*条回复/)
     ) {
       if (inContent && contentLines.length > 0) break;
       continue;
     }
 
-    if (inContent) {
-
-        // 过滤 XHS 页面垃圾（平台图标、推荐区域、评论计数、话题标签链接等）
-        if (
-          trimmed.startsWith("![](http") ||               // 平台图片
-          trimmed.includes("picasso-static.xiaohongshu.com") ||
-          trimmed.includes("猜你想搜") ||
-          trimmed.includes("为你推荐") ||
-          trimmed.includes("相关笔记") ||
-          trimmed.includes("热门搜索") ||
-          trimmed.match(/^共\s*\d+\s*条评论/) ||         // "共 470 条评论"
-          trimmed.match(/\d+\s*条评论/) ||                // "470条评论"
-          trimmed.match(/\d+\s*条回复/) ||                // "3条回复"
-          trimmed.match(/^\d{4}-\d{2}-\d{2}$/) ||        // 纯日期行 "2024-09-17"
-          trimmed.match(/^\d{2}-\d{2}$/) ||               // 纯日期行 "09-17"
-          trimmed.startsWith("发表于") ||
-          trimmed.match(/^\d+\s*(分钟|小时|天|月|年)前/)  // "20分钟前" / "3天前"
-        ) {
-          continue;
-        }
-
-        // 清理话题标签链接：[#xxx](/search_result?... → #xxx
-        let cleaned = trimmed;
-        if (cleaned.includes("/search_result?keyword=")) {
-          cleaned = cleaned.replace(/\[(#\S+?)\]\(\/search_result\?[^)]+\)/g, "$1");
-        }
-
-      contentLines.push(cleaned);
+    // 内容区域外的不相关行，跳过
+    if (!inContent) {
+      // 如果还没进入内容区域但行看起来像正文（长文本），也收集
+      if (trimmed.length >= 30 && !trimmed.startsWith("[!") && !trimmed.includes("温馨提示")) {
+        inContent = true;
+        console.log(`[xhs-search] extractPostDesc: 通过长文本触发内容区域 (${trimmed.length}字符)`);
+        // 不 continue，继续处理这一行
+      } else {
+        continue;
+      }
     }
+
+    // 过滤 XHS 页面垃圾
+    if (
+      trimmed.startsWith("![](http") ||
+      trimmed.includes("picasso-static.xiaohongshu.com") ||
+      trimmed.includes("猜你想搜") ||
+      trimmed.includes("为你推荐") ||
+      trimmed.includes("相关笔记") ||
+      trimmed.includes("热门搜索") ||
+      trimmed.match(/^\d{4}-\d{2}-\d{2}$/) ||
+      trimmed.startsWith("发表于") ||
+      trimmed.match(/^\d+\s*(分钟|小时|天|月|年)前$/) ||
+      trimmed.startsWith("温馨提示") ||
+      trimmed.startsWith("活动")
+    ) {
+      continue;
+    }
+
+    // 纯数字（点赞/收藏计数单独成行时），跳过
+    if (trimmed.match(/^\d+$/)) continue;
+
+    // 清理话题标签链接
+    let cleaned = trimmed;
+    if (cleaned.includes("/search_result?keyword=")) {
+      cleaned = cleaned.replace(/\[(#\S+?)\]\(\/search_result\?[^)]+\)/g, "$1");
+    }
+
+    contentLines.push(cleaned);
   }
 
   const desc = contentLines.join("\n").trim();
+  console.log(`[xhs-search] extractPostDesc: 收集了 ${contentLines.length} 行, desc总长度=${desc.length}`);
+  if (desc.length > 0) {
+    console.log(`[xhs-search] extractPostDesc: desc前200字符: "${desc.slice(0, 200)}"`);
+  }
   return desc.length >= 20 ? desc : "";
 }
 
