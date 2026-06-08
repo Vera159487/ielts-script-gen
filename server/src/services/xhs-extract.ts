@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 小红书帖子详情提取服务
  *
  * 通过 OpenCLI 浏览器控制打开帖子详情页，提取标题、正文、互动数据、
@@ -673,7 +673,33 @@ function extractPostDesc(markdown: string, pageTitle: string): string {
     }
 
     if (inContent) {
-      contentLines.push(trimmed);
+
+        // 过滤 XHS 页面垃圾（平台图标、推荐区域、评论计数、话题标签链接等）
+        if (
+          trimmed.startsWith("![](http") ||               // 平台图片
+          trimmed.includes("picasso-static.xiaohongshu.com") ||
+          trimmed.includes("猜你想搜") ||
+          trimmed.includes("为你推荐") ||
+          trimmed.includes("相关笔记") ||
+          trimmed.includes("热门搜索") ||
+          trimmed.match(/^共\s*\d+\s*条评论/) ||         // "共 470 条评论"
+          trimmed.match(/\d+\s*条评论/) ||                // "470条评论"
+          trimmed.match(/\d+\s*条回复/) ||                // "3条回复"
+          trimmed.match(/^\d{4}-\d{2}-\d{2}$/) ||        // 纯日期行 "2024-09-17"
+          trimmed.match(/^\d{2}-\d{2}$/) ||               // 纯日期行 "09-17"
+          trimmed.startsWith("发表于") ||
+          trimmed.match(/^\d+\s*(分钟|小时|天|月|年)前/)  // "20分钟前" / "3天前"
+        ) {
+          continue;
+        }
+
+        // 清理话题标签链接：[#xxx](/search_result?... → #xxx
+        let cleaned = trimmed;
+        if (cleaned.includes("/search_result?keyword=")) {
+          cleaned = cleaned.replace(/\[(#\S+?)\]\(\/search_result\?[^)]+\)/g, "$1");
+        }
+
+      contentLines.push(cleaned);
     }
   }
 
