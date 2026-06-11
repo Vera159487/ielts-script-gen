@@ -23,6 +23,7 @@ export default function Step4Rewrite({
   onRewrite,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [manualScript, setManualScript] = useState("");
 
   const displayContent = isRewriting
     ? streamContent
@@ -90,7 +91,35 @@ export default function Step4Rewrite({
         <p className="text-sm text-red-500">{stepMessage}</p>
       )}
 
-      {canRewrite && !rewrittenScript && !isRewriting && (
+      {/* 手动粘贴原文区域：当帖子没有脚本内容时显示 */}
+      {verifiedPost && !verifiedPost.scriptContent && !rewrittenScript && !isRewriting && (
+        <details className="group" open>
+          <summary className="text-sm text-gray-400 cursor-pointer hover:text-gray-600">
+            该帖子未提取到脚本内容，请手动粘贴原文
+          </summary>
+          <div className="mt-2 space-y-2">
+            <textarea
+              className="input-field min-h-[120px] resize-y text-sm"
+              placeholder="请粘贴小红书帖子的原文脚本内容..."
+              value={manualScript}
+              onChange={(e) => setManualScript(e.target.value)}
+            />
+            <button
+              onClick={() => {
+                if (verifiedPost && manualScript.trim()) {
+                  onRewrite({ ...verifiedPost, scriptContent: manualScript.trim() });
+                }
+              }}
+              disabled={!manualScript.trim()}
+              className="btn-primary text-sm"
+            >
+              使用粘贴内容开始改写
+            </button>
+          </div>
+        </details>
+      )}
+
+      {canRewrite && !rewrittenScript && !isRewriting && verifiedPost?.scriptContent && (
         <button
           onClick={() => onRewrite(verifiedPost!)}
           className="btn-primary"
