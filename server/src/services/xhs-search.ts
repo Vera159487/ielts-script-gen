@@ -169,9 +169,9 @@ async function searchBingForKeyword(
 ): Promise<XHSSearchResult[]> {
   // 同时尝试多种搜索词，提高命中率
   const queries = [
-    `site:xiaohongshu.com ${keyword}`,
-    `xiaohongshu.com ${keyword}`,
     `小红书 ${keyword}`,
+    `xiaohongshu.com ${keyword}`,
+    `site:xiaohongshu.com ${keyword}`,
   ];
 
   const allResults: XHSSearchResult[] = [];
@@ -203,7 +203,7 @@ async function searchBingOnce(
   keyword: string
 ): Promise<XHSSearchResult[]> {
   const query = encodeURIComponent(rawQuery);
-  const url = `https://www.bing.com/search?q=${query}&count=30`;
+  const url = `https://www.bing.com/search?q=${query}&count=30&ensearch=0`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
